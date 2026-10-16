@@ -69,6 +69,7 @@
   #rahmen i { position:absolute; left:5%; right:5%; top:50%; height:2px; background:#ff3b30; box-shadow:0 0 8px #ff3b30; }
   #scanInfo { position:absolute; left:0; right:0; top:calc(20px + env(safe-area-inset-top)); text-align:center; color:#fff; font-size:16px; padding:0 20px; text-shadow:0 1px 3px #000; }
   #scan .bar { position:absolute; left:0; right:0; bottom:0; padding:16px 16px calc(20px + env(safe-area-inset-bottom)); display:flex; gap:10px; }
+  #scan .bar button.an { background:#FFD60A; }
   #scan .bar button { flex:1; font-size:17px; padding:15px; border-radius:14px; background:rgba(255,255,255,.95); color:#111; }
 </style>
 </head>
@@ -114,12 +115,12 @@
   <video id="video" playsinline muted autoplay></video>
   <div id="rahmen"><i></i></div>
   <div id="scanInfo">Barcode in den Rahmen halten …</div>
-  <div class="bar"><button id="licht" class="hidden">🔦 Licht</button><button id="abbrechen">Abbrechen</button></div>
+  <div class="bar"><button id="licht" class="hidden">🔦 Licht</button><button id="zoom" class="hidden">2×</button><button id="abbrechen">Abbrechen</button></div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
 <script>
-  var API = '', TOKEN = '', akt = null, reader = null, scannt = false, licht = false;
+  var API = '', TOKEN = '', akt = null;
   var $ = function (id) { return document.getElementById(id); };
   var eur = function (x) { return (x === '' || x == null || isNaN(Number(x))) ? '–' : Number(x).toLocaleString('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 3 }); };
   var zahl = function (x) { return (x === '' || x == null) ? '–' : Number(x).toLocaleString('de-DE'); };
@@ -262,33 +263,100 @@
       setTimeout(function () { c.close(); }, 300);
     } catch (e) {}
   }
+  // Eigene Kamera-Schleife: Bild aus der Bildmitte ausschneiden und dekodieren.
+  // Bei jedem Start frischer Kamerastrom, beim Schließen alles sauber beenden.
+  var cam = { stream: null, track: null, laeuft: false, timer: null, licht: false, zoom: 1, zoomMax: 1, mf: null, bd: null, canvas: null, n: 0 };
+  function zxingLeser() {
+    if (cam.mf || typeof ZXing === 'undefined') return;
+    var hints = new Map();
+    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [ZXing.BarcodeFormat.EAN_13, ZXing.BarcodeFormat.EAN_8, ZXing.BarcodeFormat.UPC_A, ZXing.BarcodeFormat.UPC_E, ZXing.BarcodeFormat.CODE_128]);
+    hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+    cam.mf = new ZXing.MultiFormatReader(); cam.mf.setHints(hints);
+  }
+  function nativerLeser() {
+    if (cam.bd !== null) return Promise.resolve(cam.bd);
+    if (!('BarcodeDetector' in window)) { cam.bd = false; return Promise.resolve(false); }
+    return BarcodeDetector.getSupportedFormats().then(function (f) {
+      cam.bd = f.indexOf('ean_13') >= 0 ? new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128'].filter(function (x) { return f.indexOf(x) >= 0; }) }) : false;
+      return cam.bd;
+    }).catch(function () { cam.bd = false; return false; });
+  }
+  function zxingLies(cv) {
+    try {
+      var bmp = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(new ZXing.HTMLCanvasElementLuminanceSource(cv)));
+      return cam.mf.decodeWithState(bmp).getText();
+    } catch (e) { return null; } finally { try { cam.mf.reset(); } catch (e) {} }
+  }
+  function bildAusschnitt() {
+    var v = $('video'), w = v.videoWidth, h = v.videoHeight;
+    if (!w || !h) return null;
+    cam.n++;
+    // abwechselnd: breiter Streifen in der Mitte (Rahmen) und etwas größerer Bereich
+    var gross = cam.n % 3 === 0;
+    var sw = Math.round(w * (gross ? 0.95 : 0.85)), sh = Math.round(h * (gross ? 0.6 : 0.34));
+    var sx = Math.round((w - sw) / 2), sy = Math.round((h - sh) / 2);
+    var f = Math.min(1, 1280 / sw);
+    var cv = cam.canvas || (cam.canvas = document.createElement('canvas'));
+    cv.width = Math.round(sw * f); cv.height = Math.round(sh * f);
+    cv.getContext('2d', { willReadFrequently: true }).drawImage(v, sx, sy, sw, sh, 0, 0, cv.width, cv.height);
+    return cv;
+  }
+  function schleife() {
+    if (!cam.laeuft) return;
+    var cv = bildAusschnitt();
+    if (!cv) { cam.timer = setTimeout(schleife, 120); return; }
+    var weiter = function (code) {
+      if (!cam.laeuft) return;
+      if (code) treffer(code); else cam.timer = setTimeout(schleife, 60);
+    };
+    if (cam.bd) cam.bd.detect(cv).then(function (r) { weiter(r && r.length ? r[0].rawValue : (cam.mf ? zxingLies(cv) : null)); }, function () { weiter(cam.mf ? zxingLies(cv) : null); });
+    else weiter(zxingLies(cv));
+  }
+  function treffer(code) {
+    cam.laeuft = false;
+    $('rahmen').className = 'ok'; $('scanInfo').textContent = '✓ ' + code; piep();
+    try { if (navigator.vibrate) navigator.vibrate(60); } catch (e) {}
+    setTimeout(function () { kameraStopp(); suche(code); }, 250);
+  }
+  function setzeZoom(z) {
+    cam.zoom = z;
+    $('zoom').textContent = (Math.round(z * 10) / 10).toString().replace('.', ',') + '×';
+    $('zoom').classList.toggle('an', z > 1);
+    try { cam.track.applyConstraints({ advanced: [{ zoom: z }] }); } catch (e) {}
+  }
   function kameraStart() {
-    if (typeof ZXing === 'undefined') { meldung('Scanner konnte nicht geladen werden – Internet prüfen.', false); return; }
-    if (!reader) {
-      var hints = new Map();
-      hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [ZXing.BarcodeFormat.EAN_13, ZXing.BarcodeFormat.EAN_8, ZXing.BarcodeFormat.UPC_A, ZXing.BarcodeFormat.UPC_E, ZXing.BarcodeFormat.CODE_128]);
-      hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
-      reader = new ZXing.BrowserMultiFormatReader(hints, 100);
-    }
-    scannt = true; licht = false;
+    if (typeof ZXing === 'undefined' && !('BarcodeDetector' in window)) { meldung('Scanner konnte nicht geladen werden – Internet prüfen.', false); return; }
+    kameraStopp(true);
+    zxingLeser();
     $('rahmen').className = ''; $('scanInfo').textContent = 'Barcode in den Rahmen halten …';
-    $('licht').classList.add('hidden');
+    $('licht').classList.add('hidden'); $('licht').classList.remove('an'); $('zoom').classList.add('hidden');
     $('scan').classList.remove('hidden');
-    reader.decodeFromConstraints({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } } }, 'video', function (res) {
-      if (res && scannt) {
-        scannt = false;
-        var code = res.getText();
-        $('rahmen').className = 'ok'; $('scanInfo').textContent = '✓ ' + code; piep();
-        setTimeout(function () { kameraStopp(); suche(code); }, 300);
-      }
-    }).then(function () {
-      try {
-        var tr = $('video').srcObject && $('video').srcObject.getVideoTracks()[0];
-        if (tr && tr.getCapabilities && tr.getCapabilities().torch) {
+    cam.licht = false; cam.n = 0;
+    nativerLeser().then(function () {
+      return navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } } });
+    }).then(function (stream) {
+      if ($('scan').classList.contains('hidden')) { stream.getTracks().forEach(function (t) { t.stop(); }); return; }
+      cam.stream = stream; cam.track = stream.getVideoTracks()[0];
+      var v = $('video'); v.srcObject = stream; v.setAttribute('playsinline', ''); v.muted = true;
+      return v.play().catch(function () {}).then(function () {
+        var caps = {};
+        try { caps = cam.track.getCapabilities ? cam.track.getCapabilities() : {}; } catch (e) {}
+        try { if (caps.focusMode && caps.focusMode.indexOf('continuous') >= 0) cam.track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }); } catch (e) {}
+        if (caps.torch) {
           $('licht').classList.remove('hidden');
-          $('licht').onclick = function () { licht = !licht; tr.applyConstraints({ advanced: [{ torch: licht }] }); };
+          $('licht').onclick = function () {
+            cam.licht = !cam.licht; $('licht').classList.toggle('an', cam.licht);
+            try { cam.track.applyConstraints({ advanced: [{ torch: cam.licht }] }); } catch (e) {}
+          };
         }
-      } catch (e) {}
+        if (caps.zoom && caps.zoom.max >= 1.5) {
+          cam.zoomMax = Math.min(caps.zoom.max, 4);
+          $('zoom').classList.remove('hidden');
+          $('zoom').onclick = function () { setzeZoom(cam.zoom >= cam.zoomMax || cam.zoom >= 3 ? 1 : Math.min(cam.zoom + 1, cam.zoomMax)); };
+          setzeZoom(Math.min(2, cam.zoomMax)); // 2× hilft bei kleinen Barcodes (iPhone stellt nah nicht scharf)
+        }
+        cam.laeuft = true; schleife();
+      });
     }).catch(function (e) {
       var n = (e && e.name) || '';
       kameraStopp();
@@ -296,7 +364,15 @@
         'Kamera nicht verfügbar (' + esc(n || e) + ').', false);
     });
   }
-  function kameraStopp() { scannt = false; try { reader && reader.reset(); } catch (e) {} $('scan').classList.add('hidden'); }
+  function kameraStopp(offenLassen) {
+    cam.laeuft = false; clearTimeout(cam.timer);
+    if (cam.track && cam.licht) { try { cam.track.applyConstraints({ advanced: [{ torch: false }] }); } catch (e) {} }
+    if (cam.stream) cam.stream.getTracks().forEach(function (t) { try { t.stop(); } catch (e) {} });
+    cam.stream = null; cam.track = null; cam.licht = false;
+    try { $('video').pause(); $('video').srcObject = null; } catch (e) {}
+    if (!offenLassen) $('scan').classList.add('hidden');
+  }
+  document.addEventListener('visibilitychange', function () { if (document.hidden) kameraStopp(); });
 
   // ---- Start ----
   $('suchen').onclick = function () { suche($('ean').value); };
