@@ -290,15 +290,28 @@
   function bildAusschnitt() {
     var v = $('video'), w = v.videoWidth, h = v.videoHeight;
     if (!w || !h) return null;
-    cam.n++;
-    // abwechselnd: breiter Streifen in der Mitte (Rahmen) und etwas größerer Bereich
-    var gross = cam.n % 3 === 0;
-    var sw = Math.round(w * (gross ? 0.95 : 0.85)), sh = Math.round(h * (gross ? 0.6 : 0.34));
+    // Durchgänge im Wechsel: Streifen im Rahmen, hochkant (gedreht), großer Bereich,
+    // Streifen invertiert (helle Striche auf dunklem Grund), großer Bereich gedreht
+    var modus = cam.n++ % 5, gross = modus === 2 || modus === 4, drehen = modus === 1 || modus === 4, invert = modus === 3;
+    var sw, sh;
+    if (modus === 1) { sw = Math.round(w * 0.45); sh = Math.round(h * 0.8); }      // hochkant: schmal & hoch
+    else if (gross) { sw = Math.round(w * 0.95); sh = Math.round(h * 0.7); }
+    else { sw = Math.round(w * 0.85); sh = Math.round(h * 0.34); }
     var sx = Math.round((w - sw) / 2), sy = Math.round((h - sh) / 2);
-    var f = Math.min(1, 1280 / sw);
+    var f = Math.min(1, 1280 / Math.max(sw, sh));
+    var cw = Math.round(sw * f), ch = Math.round(sh * f);
     var cv = cam.canvas || (cam.canvas = document.createElement('canvas'));
-    cv.width = Math.round(sw * f); cv.height = Math.round(sh * f);
-    cv.getContext('2d', { willReadFrequently: true }).drawImage(v, sx, sy, sw, sh, 0, 0, cv.width, cv.height);
+    var g = cv.getContext('2d', { willReadFrequently: true });
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    if (drehen) { cv.width = ch; cv.height = cw; g.translate(ch, 0); g.rotate(Math.PI / 2); }
+    else { cv.width = cw; cv.height = ch; }
+    g.drawImage(v, sx, sy, sw, sh, 0, 0, cw, ch);
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    if (invert) {
+      var d = g.getImageData(0, 0, cv.width, cv.height), p = d.data;
+      for (var i = 0; i < p.length; i += 4) { p[i] = 255 - p[i]; p[i + 1] = 255 - p[i + 1]; p[i + 2] = 255 - p[i + 2]; }
+      g.putImageData(d, 0, 0);
+    }
     return cv;
   }
   function schleife() {
