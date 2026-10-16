@@ -59,6 +59,16 @@
   .pos .n small { color:var(--m); display:block; }
   .summe { display:flex; justify-content:space-between; font-weight:700; margin-top:8px; font-size:16px; }
   .hidden { display:none !important; }
+  .bildbox { position:relative; width:88px; flex-shrink:0; }
+  .bildbox img, .bildbox .noimg { width:88px; height:88px; }
+  .bildbtn { display:block; width:88px; margin-top:6px; font-size:12px; padding:6px 0; }
+  .art .noimg { flex-direction:column; text-align:center; }
+  .formgrid { display:grid; grid-template-columns:1fr 1fr; gap:0 10px; }
+  .formgrid label { margin-top:10px; }
+  .full { grid-column:1 / -1; }
+  #neuVorschau { width:100%; max-height:220px; object-fit:contain; border-radius:10px; background:#F4F6F4; margin-top:8px; }
+  .pflicht::after { content:' *'; color:var(--r); }
+  .bildwahl { display:flex; gap:8px; margin-top:6px; } .bildwahl button { flex:1; }
   .spin { display:inline-block; width:16px; height:16px; border:2px solid rgba(255,255,255,.4); border-top-color:#fff; border-radius:50%; animation:s 1s linear infinite; vertical-align:middle; }
   @keyframes s { to { transform:rotate(360deg); } }
   /* Kamera-Overlay */
@@ -109,6 +119,30 @@
   </div>
 
   <div class="card hidden" id="beleg"></div>
+
+  <div class="card hidden" id="neu">
+    <b>Neuen Artikel anlegen</b>
+    <div class="formgrid">
+      <div class="full"><label>EAN</label><input id="nEan" inputmode="numeric" autocomplete="off"></div>
+      <div class="full"><label class="pflicht">Bezeichnung</label><input id="nName" autocomplete="off" placeholder="z. B. Grußkarte Weihnachten Motiv Stern"></div>
+      <div><label>Kategorie</label><select id="nKat"></select></div>
+      <div><label>Lieferant</label><select id="nLief"></select></div>
+      <div><label>VE (Stk/Karton)</label><input id="nVe" inputmode="numeric"></div>
+      <div><label>Bestand (Stk)</label><input id="nMenge" inputmode="numeric" placeholder="Wareneingang"></div>
+      <div><label>EK netto €</label><input id="nEk" inputmode="decimal"></div>
+      <div><label>VK netto €</label><input id="nVk" inputmode="decimal"></div>
+      <div><label>UVP brutto €</label><input id="nUvp" inputmode="decimal"></div>
+      <div><label>Lagerplatz</label><input id="nPlatz" autocomplete="off"></div>
+      <div class="full"><label>Beschreibung</label><input id="nBeschr" autocomplete="off"></div>
+      <div class="full"><label>Bild</label>
+        <div class="bildwahl"><button class="sek" data-bild="kamera" data-ziel="neu">📷 Foto aufnehmen</button><button class="sek" data-bild="fotos" data-ziel="neu">🖼 Aus Fotos</button></div>
+        <img id="neuVorschau" class="hidden" alt="">
+      </div>
+    </div>
+    <div class="row" style="margin-top:14px"><button class="sek" id="nAbbr">Abbrechen</button><button id="nSpeichern" style="flex:1">Artikel speichern</button></div>
+  </div>
+  <input type="file" id="fileKamera" accept="image/*" capture="environment" class="hidden">
+  <input type="file" id="fileFotos" accept="image/*" class="hidden">
 </main>
 
 <div id="scan" class="hidden">
@@ -152,6 +186,16 @@
       }, function (e) { if (e instanceof TypeError) throw new Error('Keine Verbindung – Internet prüfen.'); throw e; });
   }
 
+  function apiPost(body) {
+    body.t = TOKEN;
+    return fetch(API, { method: 'POST', body: JSON.stringify(body), redirect: 'follow' })
+      .then(function (r) { if (!r.ok) throw new Error('Server antwortet nicht (' + r.status + ')'); return r.json(); })
+      .then(function (d) {
+        if (!d.ok) { if (/Kein Zugriff/.test(d.error)) zeigeZugang(true); throw new Error(d.error); }
+        return d.data;
+      }, function (e) { if (e instanceof TypeError) throw new Error('Keine Verbindung – Internet prüfen.'); throw e; });
+  }
+
   function status(t) { $('status').innerHTML = t; }
   function laed() { status('<span class="spin"></span>'); }
   function meldung(t, ok) { $('msg').innerHTML = t ? '<div class="msg ' + (ok ? 'ok' : 'err') + '">' + t + '</div>' : ''; if (t) window.scrollTo(0, 0); }
@@ -187,7 +231,9 @@
       status('bereit'); akt = a;
       if (!a) {
         $('artikel').classList.remove('hidden');
-        $('artikel').innerHTML = '<b>Nicht gefunden</b><div class="hint">EAN ' + esc(code) + ' ist nicht im Artikelstamm.</div>';
+        $('artikel').innerHTML = '<b>Nicht gefunden</b><div class="hint">EAN ' + esc(code) + ' ist nicht im Artikelstamm.</div>' +
+          '<div class="row" style="margin-top:12px"><button id="anlegenBtn" style="flex:1">➕ Als neuen Artikel anlegen</button></div>';
+        $('anlegenBtn').onclick = function () { neuOeffnen(code); };
         $('hinzu').classList.add('hidden');
         return;
       }
@@ -199,7 +245,8 @@
     var v = Number(a.verfuegbar) || 0, klasse = v <= 0 ? 'leer' : (a.ve && v < a.ve * 2 ? 'knapp' : 'gut');
     $('artikel').classList.remove('hidden');
     $('artikel').innerHTML =
-      '<div class="art">' + (a.bild ? '<img src="' + esc(a.bild) + '" alt="">' : '<div class="noimg">kein Bild</div>') +
+      '<div class="art"><div class="bildbox">' + (a.bild ? '<img src="' + esc(a.bild) + '" alt="">' : '<div class="noimg">kein Bild</div>') +
+      '<button class="sek bildbtn" data-bild="wahl" data-ziel="artikel">' + (a.bild ? 'Bild ändern' : '📷 Bild hinzufügen') + '</button></div>' +
       '<div><h2>' + esc(a.name) + '</h2><div class="ean">EAN ' + esc(a.ean) + (a.kategorie ? ' · ' + esc(a.kategorie) : '') + (a.lagerplatz ? ' · Platz ' + esc(a.lagerplatz) : '') + '</div>' +
       (a.aktiv === 'Nein' ? '<div class="warn">Artikel ist inaktiv</div>' : '') + '</div></div>' +
       '<div class="kpis"><div class="kpi ' + klasse + '"><b>' + zahl(v) + '</b><small>verfügbar</small></div>' +
@@ -386,6 +433,89 @@
     if (!offenLassen) $('scan').classList.add('hidden');
   }
   document.addEventListener('visibilitychange', function () { if (document.hidden) kameraStopp(); });
+
+  // ---- Neuer Artikel ----
+  var listen = null, neuBild = null, bildZiel = null;
+  function ladeListen() {
+    if (listen) return Promise.resolve(listen);
+    return api({ api: 'listen' }).then(function (d) { listen = d; return d; });
+  }
+  function neuOeffnen(code) {
+    meldung(''); neuBild = null;
+    ['nName', 'nVe', 'nMenge', 'nEk', 'nVk', 'nUvp', 'nPlatz', 'nBeschr'].forEach(function (id) { $(id).value = ''; });
+    $('nEan').value = code || '';
+    $('neuVorschau').classList.add('hidden');
+    $('artikel').classList.add('hidden'); $('hinzu').classList.add('hidden'); $('beleg').classList.add('hidden');
+    $('neu').classList.remove('hidden');
+    $('neu').scrollIntoView({ behavior: 'smooth' });
+    laed();
+    ladeListen().then(function (d) {
+      status('bereit');
+      $('nKat').innerHTML = '<option value="">– keine –</option>' + d.kategorien.map(function (k) { return '<option>' + esc(k) + '</option>'; }).join('');
+      $('nLief').innerHTML = '<option value="">– keiner –</option>' + d.lieferanten.map(function (l) { return '<option value="' + esc(l.nr) + '">' + esc(l.firma + ' (' + l.nr + ')') + '</option>'; }).join('');
+      $('nName').focus();
+    }).catch(fehler);
+  }
+  function neuSpeichern() {
+    var daten = {
+      ean: $('nEan').value.trim(), name: $('nName').value.trim(), kategorie: $('nKat').value, lieferant: $('nLief').value,
+      ve: $('nVe').value, menge: $('nMenge').value, ek: $('nEk').value, vk: $('nVk').value, uvp: $('nUvp').value,
+      lagerplatz: $('nPlatz').value.trim(), beschreibung: $('nBeschr').value.trim(), bild: neuBild
+    };
+    if (!daten.name) { meldung('Bitte eine Bezeichnung eingeben.', false); return; }
+    $('nSpeichern').disabled = true; laed();
+    apiPost({ api: 'anlegen', daten: daten }).then(function (a) {
+      $('nSpeichern').disabled = false; status('bereit');
+      $('neu').classList.add('hidden');
+      meldung('✓ Artikel ' + esc(a.name) + ' angelegt.', true);
+      akt = a; zeigeArtikel(a);
+    }).catch(function (e) { $('nSpeichern').disabled = false; fehler(e); });
+  }
+
+  // ---- Bilder: aufnehmen oder aus Fotos, verkleinern, hochladen ----
+  function bildWaehlen(art, ziel) {
+    bildZiel = ziel;
+    if (art === 'wahl') { $('fileFotos').click(); return; } // iPhone fragt: Foto aufnehmen / Fotomediathek
+    (art === 'kamera' ? $('fileKamera') : $('fileFotos')).click();
+  }
+  function verkleinern(file) {
+    return new Promise(function (ok, nein) {
+      var url = URL.createObjectURL(file), img = new Image();
+      img.onload = function () {
+        var max = 1200, w = img.naturalWidth, h = img.naturalHeight, f = Math.min(1, max / Math.max(w, h));
+        var cv = document.createElement('canvas'); cv.width = Math.round(w * f); cv.height = Math.round(h * f);
+        var g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height); g.drawImage(img, 0, 0, cv.width, cv.height);
+        URL.revokeObjectURL(url); ok(cv.toDataURL('image/jpeg', 0.82));
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); nein(new Error('Bild konnte nicht geöffnet werden.')); };
+      img.src = url;
+    });
+  }
+  function dateiGewaehlt(ev) {
+    var f = ev.target.files && ev.target.files[0]; ev.target.value = '';
+    if (!f) return;
+    laed();
+    verkleinern(f).then(function (data) {
+      if (bildZiel === 'neu') {
+        neuBild = data; $('neuVorschau').src = data; $('neuVorschau').classList.remove('hidden'); status('bereit');
+        return;
+      }
+      if (!akt) { status('bereit'); return; }
+      meldung('Bild wird hochgeladen …', true);
+      return apiPost({ api: 'bild', ean: akt.ean, bild: data }).then(function (a) {
+        status('bereit'); meldung('✓ Bild gespeichert.', true);
+        if (a) { a.bild = a.bild || data; akt = a; zeigeArtikel(a); }
+      });
+    }).catch(fehler);
+  }
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('[data-bild]');
+    if (b) { e.preventDefault(); bildWaehlen(b.getAttribute('data-bild'), b.getAttribute('data-ziel')); }
+  });
+  $('fileKamera').onchange = dateiGewaehlt;
+  $('fileFotos').onchange = dateiGewaehlt;
+  $('nSpeichern').onclick = neuSpeichern;
+  $('nAbbr').onclick = function () { $('neu').classList.add('hidden'); neuBild = null; };
 
   // ---- Start ----
   $('suchen').onclick = function () { suche($('ean').value); };
