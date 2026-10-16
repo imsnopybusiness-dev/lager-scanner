@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Lager-Scanner">
+<meta name="theme-color" content="#2E5E3E">
+<link rel="apple-touch-icon" href="icon.png">
+<title>Lager-Scanner</title>
+<style>
+  :root { --g:#2E5E3E; --g2:#E8F0EA; --t:#1F2937; --m:#6B7280; --l:#D9DED9; --r:#B42318; --o:#B45309; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { background:#F4F6F4; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif; color:var(--t); }
+  header { background:var(--g); color:#fff; padding:calc(12px + env(safe-area-inset-top)) 16px 12px; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:5; }
+  header h1 { font-size:18px; margin:0; font-weight:700; }
+  header span { font-size:12px; opacity:.85; }
+  main { padding:12px 12px calc(24px + env(safe-area-inset-bottom)); max-width:560px; margin:0 auto; }
+  .card { background:#fff; border-radius:14px; padding:14px; margin-bottom:12px; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+  .row { display:flex; gap:8px; }
+  input, select { font-size:17px; padding:12px; border:1.5px solid var(--l); border-radius:10px; width:100%; background:#fff; color:var(--t); -webkit-appearance:none; appearance:none; }
+  select { background-image:linear-gradient(45deg,transparent 50%,#6B7280 50%),linear-gradient(135deg,#6B7280 50%,transparent 50%); background-position:calc(100% - 18px) 50%,calc(100% - 13px) 50%; background-size:5px 5px; background-repeat:no-repeat; padding-right:32px; }
+  input:focus, select:focus { outline:none; border-color:var(--g); }
+  button { font-size:16px; font-weight:600; border:0; border-radius:10px; padding:12px 14px; background:var(--g); color:#fff; }
+  button.sek { background:var(--g2); color:var(--g); }
+  button:disabled { opacity:.5; }
+  #kamera { width:100%; margin-top:10px; padding:16px; font-size:18px; }
+  .hint { font-size:13px; color:var(--m); margin-top:8px; }
+  .art { display:flex; gap:12px; }
+  .art img { width:88px; height:88px; object-fit:contain; border-radius:10px; background:#F4F6F4; flex-shrink:0; }
+  .art .noimg { width:88px; height:88px; border-radius:10px; background:#F4F6F4; display:flex; align-items:center; justify-content:center; color:var(--m); font-size:12px; flex-shrink:0; }
+  .art h2 { font-size:16px; margin:0 0 4px; line-height:1.3; }
+  .art .ean { font-size:13px; color:var(--m); }
+  .kpis { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:12px; }
+  .kpi { background:#F4F6F4; border-radius:10px; padding:8px; text-align:center; }
+  .kpi b { display:block; font-size:20px; }
+  .kpi small { color:var(--m); font-size:12px; }
+  .kpi.gut b { color:var(--g); } .kpi.knapp b { color:var(--o); } .kpi.leer b { color:var(--r); }
+  .preise { display:flex; margin-top:10px; font-size:14px; }
+  .preise div { text-align:center; flex:1; }
+  .preise small { color:var(--m); }
+  .preise b { display:block; font-size:17px; }
+  .preise .ek b { color:var(--m); }
+  label { display:block; font-size:13px; color:var(--m); margin:12px 0 4px; }
+  .menge { display:flex; gap:8px; align-items:center; }
+  .menge button { width:52px; font-size:22px; padding:8px 0; flex-shrink:0; }
+  .menge input { text-align:center; font-size:20px; font-weight:700; }
+  .vehint { font-size:12px; color:var(--m); margin-top:4px; }
+  .warn { color:var(--o); font-size:13px; margin-top:6px; }
+  .msg { padding:12px; border-radius:10px; font-size:15px; margin-bottom:12px; }
+  .msg.ok { background:var(--g2); color:var(--g); }
+  .msg.err { background:#FDECEA; color:var(--r); }
+  .pos { display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--l); font-size:14px; gap:8px; }
+  .pos:last-of-type { border-bottom:0; }
+  .pos .n { flex:1; }
+  .pos .n small { color:var(--m); display:block; }
+  .summe { display:flex; justify-content:space-between; font-weight:700; margin-top:8px; font-size:16px; }
+  .hidden { display:none !important; }
+  .spin { display:inline-block; width:16px; height:16px; border:2px solid rgba(255,255,255,.4); border-top-color:#fff; border-radius:50%; animation:s 1s linear infinite; vertical-align:middle; }
+  @keyframes s { to { transform:rotate(360deg); } }
+  /* Kamera-Overlay */
+  #scan { position:fixed; inset:0; background:#000; z-index:50; }
+  #scan video { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+  #rahmen { position:absolute; left:7%; right:7%; top:36%; height:22%; border:3px solid rgba(255,255,255,.95); border-radius:18px; box-shadow:0 0 0 9999px rgba(0,0,0,.45); transition:all .15s; }
+  #rahmen.ok { border-color:#34c759; background:rgba(52,199,89,.3); }
+  #rahmen i { position:absolute; left:5%; right:5%; top:50%; height:2px; background:#ff3b30; box-shadow:0 0 8px #ff3b30; }
+  #scanInfo { position:absolute; left:0; right:0; top:calc(20px + env(safe-area-inset-top)); text-align:center; color:#fff; font-size:16px; padding:0 20px; text-shadow:0 1px 3px #000; }
+  #scan .bar { position:absolute; left:0; right:0; bottom:0; padding:16px 16px calc(20px + env(safe-area-inset-bottom)); display:flex; gap:10px; }
+  #scan .bar button { flex:1; font-size:17px; padding:15px; border-radius:14px; background:rgba(255,255,255,.95); color:#111; }
+</style>
+</head>
+<body>
+<header><h1>Lager-Scanner</h1><span id="status">bereit</span></header>
+<main>
+  <div id="msg"></div>
+
+  <div class="card hidden" id="zugang">
+    <b>Scanner einrichten</b>
+    <div class="hint">Am einfachsten: den fertigen Link aus dem Google Sheet öffnen (Menü Warenwirtschaft → Scanner-Zugang). Oder hier beides einfügen:</div>
+    <label>Bereitstellungs-ID oder Web-App-URL</label><input id="apiId" autocomplete="off" autocapitalize="off" placeholder="AKfycb…">
+    <label>Zugangscode</label><input id="code" autocomplete="off" autocapitalize="off" placeholder="Zugangscode">
+    <div class="row" style="margin-top:12px"><button id="codeOk" style="flex:1">Speichern</button></div>
+  </div>
+
+  <div class="card" id="scanKarte">
+    <div class="row">
+      <input id="ean" inputmode="numeric" autocomplete="off" placeholder="EAN scannen oder eintippen" enterkeyhint="search">
+      <button id="suchen">Los</button>
+    </div>
+    <button id="kamera">📷 Mit Kamera scannen</button>
+    <div class="hint">Bluetooth-Scanner: einfach ins Feld scannen. Kamera: Barcode in den Rahmen halten – wird automatisch erkannt.</div>
+  </div>
+
+  <div class="card hidden" id="artikel"></div>
+
+  <div class="card hidden" id="hinzu">
+    <label>Menge (Stück)</label>
+    <div class="menge"><button class="sek" id="minus">−</button><input id="menge" type="number" inputmode="numeric" min="1"><button class="sek" id="plus">+</button></div>
+    <div class="vehint" id="vehint"></div>
+    <div class="warn hidden" id="warn"></div>
+    <label>Angebot</label>
+    <select id="angebot"></select>
+    <div id="kundeBox" class="hidden"><label>Kunde für das neue Angebot</label><select id="kunde"></select></div>
+    <div class="row" style="margin-top:12px"><button id="add" style="flex:1">Zum Angebot hinzufügen</button></div>
+  </div>
+
+  <div class="card hidden" id="beleg"></div>
+</main>
+
+<div id="scan" class="hidden">
+  <video id="video" playsinline muted autoplay></video>
+  <div id="rahmen"><i></i></div>
+  <div id="scanInfo">Barcode in den Rahmen halten …</div>
+  <div class="bar"><button id="licht" class="hidden">🔦 Licht</button><button id="abbrechen">Abbrechen</button></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
+<script>
+  var API = '', TOKEN = '', akt = null, reader = null, scannt = false, licht = false;
+  var $ = function (id) { return document.getElementById(id); };
+  var eur = function (x) { return (x === '' || x == null || isNaN(Number(x))) ? '–' : Number(x).toLocaleString('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 3 }); };
+  var zahl = function (x) { return (x === '' || x == null) ? '–' : Number(x).toLocaleString('de-DE'); };
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+
+  // ---- Zugangscode (aus Link #t=... oder einmalig eingeben) ----
+  function apiUrl(id) { return id ? 'https://script.google.com/macros/s/' + id + '/exec' : ''; }
+  function ladeToken() {
+    var t = location.hash.match(/[#&]t=([A-Za-z0-9]+)/), a = location.hash.match(/[#&]a=([A-Za-z0-9_-]+)/);
+    try {
+      if (t) localStorage.setItem('scanToken', t[1]);
+      if (a) localStorage.setItem('scanApi', a[1]);
+    } catch (e) {}
+    var lt = '', la = '';
+    try { lt = localStorage.getItem('scanToken') || ''; la = localStorage.getItem('scanApi') || ''; } catch (e) {}
+    TOKEN = t ? t[1] : lt; API = apiUrl(a ? a[1] : la);
+  }
+  function zeigeZugang(an) { $('zugang').classList.toggle('hidden', !an); $('scanKarte').classList.toggle('hidden', an); }
+
+  // ---- Verbindung zum Google Sheet ----
+  function api(params) {
+    params.t = TOKEN;
+    var q = Object.keys(params).map(function (k) { return k + '=' + encodeURIComponent(params[k] == null ? '' : params[k]); }).join('&');
+    return fetch(API + '?' + q, { redirect: 'follow' })
+      .then(function (r) { if (!r.ok) throw new Error('Server antwortet nicht (' + r.status + ')'); return r.json(); })
+      .then(function (d) {
+        if (!d.ok) { if (/Kein Zugriff/.test(d.error)) zeigeZugang(true); throw new Error(d.error); }
+        return d.data;
+      }, function (e) { if (e instanceof TypeError) throw new Error('Keine Verbindung – Internet prüfen.'); throw e; });
+  }
+
+  function status(t) { $('status').innerHTML = t; }
+  function laed() { status('<span class="spin"></span>'); }
+  function meldung(t, ok) { $('msg').innerHTML = t ? '<div class="msg ' + (ok ? 'ok' : 'err') + '">' + t + '</div>' : ''; if (t) window.scrollTo(0, 0); }
+  function fehler(e) { status('bereit'); meldung(esc(e && e.message ? e.message : e), false); }
+
+  function ladeStamm(auswahl) {
+    return api({ api: 'stamm' }).then(function (d) {
+      var s = $('angebot'), alt = auswahl || s.value;
+      s.innerHTML = '<option value="">➕ Neues Angebot anlegen</option>' + d.angebote.map(function (a) {
+        return '<option value="' + esc(a.nr) + '">' + esc(a.nr + ' – ' + (a.firma || 'ohne Kunde') + ' (' + a.status + ')') + '</option>';
+      }).join('');
+      if (alt && d.angebote.some(function (a) { return a.nr === alt; })) s.value = alt;
+      $('kunde').innerHTML = '<option value="">Kunde wählen …</option>' + d.kunden.map(function (k) {
+        return '<option value="' + esc(k.nr) + '">' + esc(k.firma + ' (' + k.nr + ')') + '</option>';
+      }).join('');
+      angebotWechsel();
+    });
+  }
+
+  function angebotWechsel() {
+    var neu = !$('angebot').value;
+    $('kundeBox').classList.toggle('hidden', !neu);
+    $('add').textContent = neu ? 'Neues Angebot + hinzufügen' : 'Zu ' + $('angebot').value + ' hinzufügen';
+    if (neu) $('beleg').classList.add('hidden'); else zeigeBeleg($('angebot').value);
+  }
+
+  function suche(code) {
+    code = String(code || '').trim();
+    if (!code) return;
+    $('ean').value = code;
+    meldung(''); laed();
+    api({ api: 'artikel', ean: code }).then(function (a) {
+      status('bereit'); akt = a;
+      if (!a) {
+        $('artikel').classList.remove('hidden');
+        $('artikel').innerHTML = '<b>Nicht gefunden</b><div class="hint">EAN ' + esc(code) + ' ist nicht im Artikelstamm.</div>';
+        $('hinzu').classList.add('hidden');
+        return;
+      }
+      zeigeArtikel(a);
+    }).catch(fehler);
+  }
+
+  function zeigeArtikel(a) {
+    var v = Number(a.verfuegbar) || 0, klasse = v <= 0 ? 'leer' : (a.ve && v < a.ve * 2 ? 'knapp' : 'gut');
+    $('artikel').classList.remove('hidden');
+    $('artikel').innerHTML =
+      '<div class="art">' + (a.bild ? '<img src="' + esc(a.bild) + '" alt="">' : '<div class="noimg">kein Bild</div>') +
+      '<div><h2>' + esc(a.name) + '</h2><div class="ean">EAN ' + esc(a.ean) + (a.kategorie ? ' · ' + esc(a.kategorie) : '') + (a.lagerplatz ? ' · Platz ' + esc(a.lagerplatz) : '') + '</div>' +
+      (a.aktiv === 'Nein' ? '<div class="warn">Artikel ist inaktiv</div>' : '') + '</div></div>' +
+      '<div class="kpis"><div class="kpi ' + klasse + '"><b>' + zahl(v) + '</b><small>verfügbar</small></div>' +
+      '<div class="kpi"><b>' + zahl(a.bestand) + '</b><small>Bestand</small></div>' +
+      '<div class="kpi"><b>' + zahl(a.reserviert) + '</b><small>reserviert</small></div></div>' +
+      '<div class="preise"><div><small>VK netto</small><b>' + eur(a.vk) + '</b></div><div><small>UVP</small><b>' + eur(a.uvp) + '</b></div><div class="ek"><small>EK</small><b>' + eur(a.ek) + '</b></div></div>';
+    $('hinzu').classList.remove('hidden');
+    $('menge').value = a.ve || 1;
+    $('vehint').textContent = a.ve ? 'VE: ' + a.ve + ' Stück pro Karton' : 'Keine VE hinterlegt';
+    pruefeMenge();
+  }
+
+  function pruefeMenge() {
+    if (!akt) return;
+    var m = Number($('menge').value) || 0, v = Number(akt.verfuegbar) || 0, w = [];
+    if (m > v) w.push('Mehr als verfügbar (' + zahl(v) + ' Stück).');
+    if (akt.ve && m % akt.ve !== 0) w.push('Keine volle VE (' + akt.ve + ' Stück/Karton).');
+    $('warn').textContent = w.join(' ');
+    $('warn').classList.toggle('hidden', !w.length);
+  }
+
+  function schritt(d) {
+    var ve = (akt && akt.ve) || 1, m = Number($('menge').value) || 0;
+    $('menge').value = Math.max(ve, m + d * ve);
+    pruefeMenge();
+  }
+
+  function hinzufuegen() {
+    if (!akt) return;
+    var nr = $('angebot').value, kunde = $('kunde').value, m = Number($('menge').value), name = akt.name;
+    if (!nr && !kunde) { meldung('Bitte zuerst einen Kunden für das neue Angebot wählen.', false); return; }
+    if (!(m > 0)) { meldung('Bitte eine Menge eingeben.', false); return; }
+    $('add').disabled = true; laed();
+    api({ api: 'hinzu', nr: nr, kunde: kunde, ean: akt.ean, menge: m }).then(function (r) {
+      $('add').disabled = false; status('bereit');
+      meldung('✓ ' + zahl(m) + ' × ' + esc(name) + ' – ' + esc(r.msg) + ' in ' + esc(r.nr), true);
+      akt = null; $('hinzu').classList.add('hidden'); $('artikel').classList.add('hidden'); $('ean').value = '';
+      zeigeBelegDaten(r);
+      ladeStamm(r.nr).catch(fehler);
+    }).catch(function (e) { $('add').disabled = false; fehler(e); });
+  }
+
+  function zeigeBeleg(nr) { api({ api: 'beleg', nr: nr }).then(zeigeBelegDaten).catch(fehler); }
+
+  function zeigeBelegDaten(r) {
+    if (!r || !r.nr) return;
+    $('beleg').classList.remove('hidden');
+    $('beleg').innerHTML = '<b>' + esc(r.nr) + '</b> <span class="hint">' + esc(r.firma || '') + '</span>' +
+      (r.positionen.length ? r.positionen.map(function (p) {
+        return '<div class="pos"><div class="n">' + esc(p.name) + '<small>' + esc(p.ean) + '</small></div><div>' + zahl(p.menge) + '×</div><div>' + eur(p.gesamt) + '</div></div>';
+      }).join('') : '<div class="hint">Noch keine Positionen.</div>') +
+      '<div class="summe"><span>Summe netto</span><span>' + eur(r.summe) + '</span></div>' +
+      '<div class="hint">PDF: am Rechner Menü Warenwirtschaft → Beleg anzeigen → PDF erstellen.</div>';
+  }
+
+  // ---- Kamera: live, erkennt automatisch, schließt sich selbst ----
+  function piep() {
+    try {
+      var C = window.AudioContext || window.webkitAudioContext, c = new C(), o = c.createOscillator(), g = c.createGain();
+      o.frequency.value = 1800; g.gain.value = 0.15; o.connect(g); g.connect(c.destination); o.start(); o.stop(c.currentTime + 0.12);
+      setTimeout(function () { c.close(); }, 300);
+    } catch (e) {}
+  }
+  function kameraStart() {
+    if (typeof ZXing === 'undefined') { meldung('Scanner konnte nicht geladen werden – Internet prüfen.', false); return; }
+    if (!reader) {
+      var hints = new Map();
+      hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [ZXing.BarcodeFormat.EAN_13, ZXing.BarcodeFormat.EAN_8, ZXing.BarcodeFormat.UPC_A, ZXing.BarcodeFormat.UPC_E, ZXing.BarcodeFormat.CODE_128]);
+      hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+      reader = new ZXing.BrowserMultiFormatReader(hints, 100);
+    }
+    scannt = true; licht = false;
+    $('rahmen').className = ''; $('scanInfo').textContent = 'Barcode in den Rahmen halten …';
+    $('licht').classList.add('hidden');
+    $('scan').classList.remove('hidden');
+    reader.decodeFromConstraints({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } } }, 'video', function (res) {
+      if (res && scannt) {
+        scannt = false;
+        var code = res.getText();
+        $('rahmen').className = 'ok'; $('scanInfo').textContent = '✓ ' + code; piep();
+        setTimeout(function () { kameraStopp(); suche(code); }, 300);
+      }
+    }).then(function () {
+      try {
+        var tr = $('video').srcObject && $('video').srcObject.getVideoTracks()[0];
+        if (tr && tr.getCapabilities && tr.getCapabilities().torch) {
+          $('licht').classList.remove('hidden');
+          $('licht').onclick = function () { licht = !licht; tr.applyConstraints({ advanced: [{ torch: licht }] }); };
+        }
+      } catch (e) {}
+    }).catch(function (e) {
+      var n = (e && e.name) || '';
+      kameraStopp();
+      meldung(n === 'NotAllowedError' ? 'Kamera-Zugriff abgelehnt. iPhone: Einstellungen → Safari → Kamera → „Fragen“ oder „Erlauben“, dann nochmal.' :
+        'Kamera nicht verfügbar (' + esc(n || e) + ').', false);
+    });
+  }
+  function kameraStopp() { scannt = false; try { reader && reader.reset(); } catch (e) {} $('scan').classList.add('hidden'); }
+
+  // ---- Start ----
+  $('suchen').onclick = function () { suche($('ean').value); };
+  $('ean').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); suche($('ean').value); } });
+  $('kamera').onclick = kameraStart;
+  $('abbrechen').onclick = kameraStopp;
+  $('minus').onclick = function () { schritt(-1); };
+  $('plus').onclick = function () { schritt(1); };
+  $('menge').oninput = pruefeMenge;
+  $('angebot').onchange = angebotWechsel;
+  $('add').onclick = hinzufuegen;
+  $('codeOk').onclick = function () {
+    var id = $('apiId').value.trim(), m = id.match(/\/s\/([A-Za-z0-9_-]+)/);
+    if (m) id = m[1];
+    TOKEN = $('code').value.trim(); API = apiUrl(id);
+    try { localStorage.setItem('scanToken', TOKEN); localStorage.setItem('scanApi', id); } catch (e) {}
+    meldung(''); laed();
+    ladeStamm().then(function () { status('bereit'); zeigeZugang(false); }).catch(fehler);
+  };
+
+  ladeToken();
+  if (!TOKEN || !API) zeigeZugang(true);
+  else { laed(); ladeStamm().then(function () { status('bereit'); }).catch(fehler); }
+</script>
+</body>
+</html>
