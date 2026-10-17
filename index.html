@@ -84,16 +84,16 @@
 </style>
 </head>
 <body>
-<header><h1>Lager-Scanner</h1><span id="status">bereit</span></header>
+<header><h1>Lager-Scanner</h1><span><span id="wer"></span> <span id="status">bereit</span></span></header>
 <main>
   <div id="msg"></div>
 
   <div class="card hidden" id="zugang">
-    <b>Scanner einrichten</b>
-    <div class="hint">Am einfachsten: den fertigen Link aus dem Google Sheet öffnen (Menü Warenwirtschaft → Scanner-Zugang). Oder hier beides einfügen:</div>
-    <label>Bereitstellungs-ID oder Web-App-URL</label><input id="apiId" autocomplete="off" autocapitalize="off" placeholder="AKfycb…">
-    <label>Zugangscode</label><input id="code" autocomplete="off" autocapitalize="off" placeholder="Zugangscode">
-    <div class="row" style="margin-top:12px"><button id="codeOk" style="flex:1">Speichern</button></div>
+    <b>Anmelden</b>
+    <div class="hint">Mit eurem Namen und Passwort aus dem Google Sheet (Menü Warenwirtschaft → Benutzer & Passwörter). Die Anmeldung bleibt 30 Tage auf diesem iPhone gespeichert.</div>
+    <label>Name</label><input id="lName" autocomplete="username" autocapitalize="off">
+    <label>Passwort</label><input id="lPw" type="password" autocomplete="current-password" enterkeyhint="go">
+    <div class="row" style="margin-top:12px"><button id="lOk" style="flex:1">Anmelden</button></div>
   </div>
 
   <div class="card" id="scanKarte">
@@ -112,6 +112,9 @@
     <div class="menge"><button class="sek" id="minus">−</button><input id="menge" type="number" inputmode="numeric" min="1"><button class="sek" id="plus">+</button></div>
     <div class="vehint" id="vehint"></div>
     <div class="warn hidden" id="warn"></div>
+    <label>Preis je Stück netto (€)</label>
+    <input id="preis" inputmode="decimal" autocomplete="off">
+    <div class="vehint" id="preishint"></div>
     <label>Angebot</label>
     <select id="angebot"></select>
     <div id="kundeBox" class="hidden"><label>Kunde für das neue Angebot</label><select id="kunde"></select></div>
@@ -119,6 +122,7 @@
   </div>
 
   <div class="card hidden" id="beleg"></div>
+  <div class="hint" style="text-align:center;margin:18px 0 6px"><a href="#" id="abmelden" style="color:var(--m)">Abmelden</a> · <a href="buero/" style="color:var(--m)">Büro-App</a></div>
 
   <div class="card hidden" id="neu">
     <b>Neuen Artikel anlegen</b>
@@ -154,47 +158,57 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
 <script>
-  var API = '', TOKEN = '', akt = null;
+  var STANDARD_API = 'AKfycbwLqf5z3A39SYeigqJvWV0uRUWMLRiRI2q2HonVWnG2MhDxsfl7sTyXTtdeJoea4uSl';
+  var API = '', SITZUNG = '', NAME = '', akt = null;
   var $ = function (id) { return document.getElementById(id); };
   var eur = function (x) { return (x === '' || x == null || isNaN(Number(x))) ? '–' : Number(x).toLocaleString('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 3 }); };
   var zahl = function (x) { return (x === '' || x == null) ? '–' : Number(x).toLocaleString('de-DE'); };
   var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+  var komma = function (x) { return x === '' || x == null || isNaN(Number(x)) ? '' : Number(x).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 3, useGrouping: false }); };
+  var lies = function (k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } };
+  var schreib = function (k, v) { try { if (v) localStorage.setItem(k, v); else localStorage.removeItem(k); } catch (e) {} };
 
-  // ---- Zugangscode (aus Link #t=... oder einmalig eingeben) ----
-  function apiUrl(id) { return id ? 'https://script.google.com/macros/s/' + id + '/exec' : ''; }
-  function ladeToken() {
-    var t = location.hash.match(/[#&]t=([A-Za-z0-9]+)/), a = location.hash.match(/[#&]a=([A-Za-z0-9_-]+)/);
-    try {
-      if (t) localStorage.setItem('scanToken', t[1]);
-      if (a) localStorage.setItem('scanApi', a[1]);
-    } catch (e) {}
-    var lt = '', la = '';
-    try { lt = localStorage.getItem('scanToken') || ''; la = localStorage.getItem('scanApi') || ''; } catch (e) {}
-    TOKEN = t ? t[1] : lt; API = apiUrl(a ? a[1] : la);
+  // ---- Anmeldung (Name + Passwort, Sitzung 30 Tage) ----
+  function apiUrl(id) { return 'https://script.google.com/macros/s/' + id + '/exec'; }
+  function ladeSitzung() {
+    var a = location.hash.match(/[#&]a=([A-Za-z0-9_-]+)/);
+    if (a) schreib('scanApi', a[1]);
+    schreib('scanToken', ''); // alter Zugangscode wird nicht mehr verwendet
+    if (location.hash) history.replaceState(null, '', location.pathname);
+    API = apiUrl(lies('scanApi') || STANDARD_API);
+    SITZUNG = lies('wwSitzung'); NAME = lies('wwName');
+    $('wer').textContent = NAME ? NAME + ' ·' : '';
   }
-  function zeigeZugang(an) { $('zugang').classList.toggle('hidden', !an); $('scanKarte').classList.toggle('hidden', an); }
-
-  // ---- Verbindung zum Google Sheet ----
-  function api(params) {
-    params.t = TOKEN;
-    var q = Object.keys(params).map(function (k) { return k + '=' + encodeURIComponent(params[k] == null ? '' : params[k]); }).join('&');
-    return fetch(API + '?' + q, { redirect: 'follow' })
-      .then(function (r) { if (!r.ok) throw new Error('Server antwortet nicht (' + r.status + ')'); return r.json(); })
-      .then(function (d) {
-        if (!d.ok) { if (/Kein Zugriff/.test(d.error)) zeigeZugang(true); throw new Error(d.error); }
-        return d.data;
-      }, function (e) { if (e instanceof TypeError) throw new Error('Keine Verbindung – Internet prüfen.'); throw e; });
+  function zeigeZugang(an) {
+    $('zugang').classList.toggle('hidden', !an); $('scanKarte').classList.toggle('hidden', an);
+    if (an) { ['artikel', 'hinzu', 'beleg', 'neu'].forEach(function (id) { var e = $(id); if (e) e.classList.add('hidden'); }); setTimeout(function () { $(NAME ? 'lPw' : 'lName').focus(); }, 50); $('lName').value = NAME; }
+  }
+  function anmelden() {
+    var name = $('lName').value.trim(), pw = $('lPw').value;
+    if (!name || !pw) { meldung('Bitte Name und Passwort eingeben.', false); return; }
+    $('lOk').disabled = true; laed();
+    senden({ api: 'login', name: name, pw: pw }).then(function (d) {
+      SITZUNG = d.sitzung; NAME = d.name; schreib('wwSitzung', SITZUNG); schreib('wwName', NAME);
+      $('lPw').value = ''; $('lOk').disabled = false; $('wer').textContent = NAME + ' ·';
+      meldung(''); zeigeZugang(false); return ladeStamm().then(function () { status('bereit'); });
+    }).catch(function (e) { $('lOk').disabled = false; fehler(e); });
+  }
+  function abmelden() {
+    api({ api: 'logout' }).catch(function () {});
+    SITZUNG = ''; schreib('wwSitzung', ''); $('wer').textContent = ''; zeigeZugang(true); meldung('Abgemeldet.', true);
   }
 
-  function apiPost(body) {
-    body.t = TOKEN;
+  // ---- Verbindung zum Google Sheet (alles per POST, Sitzung im Inhalt, nicht in der Adresse) ----
+  function senden(body) {
     return fetch(API, { method: 'POST', body: JSON.stringify(body), redirect: 'follow' })
       .then(function (r) { if (!r.ok) throw new Error('Server antwortet nicht (' + r.status + ')'); return r.json(); })
       .then(function (d) {
-        if (!d.ok) { if (/Kein Zugriff/.test(d.error)) zeigeZugang(true); throw new Error(d.error); }
+        if (!d.ok) { if (/anmelden/i.test(d.error)) { SITZUNG = ''; schreib('wwSitzung', ''); zeigeZugang(true); } throw new Error(d.error); }
         return d.data;
       }, function (e) { if (e instanceof TypeError) throw new Error('Keine Verbindung – Internet prüfen.'); throw e; });
   }
+  function api(params) { params.s = SITZUNG; return senden(params); }
+  var apiPost = api;
 
   function status(t) { $('status').innerHTML = t; }
   function laed() { status('<span class="spin"></span>'); }
@@ -256,10 +270,27 @@
     $('hinzu').classList.remove('hidden');
     $('menge').value = a.ve || 1;
     $('vehint').textContent = a.ve ? 'VE: ' + a.ve + ' Stück pro Karton' : 'Keine VE hinterlegt';
+    $('preis').value = komma(a.vk);
+    $('preis').placeholder = a.vk ? komma(a.vk) : 'kein VK hinterlegt';
+    pruefePreis();
     pruefeMenge();
   }
 
+  function preisWert() { var x = $('preis').value.replace(/\s/g, '').replace(',', '.'); return x === '' ? '' : Number(x); }
+  function pruefePreis() {
+    if (!akt) return;
+    var p = preisWert(), m = Number($('menge').value) || 0, vk = Number(akt.vk) || 0, t = '';
+    if (p === '' || isNaN(p)) t = vk ? 'Leer = Listenpreis ' + eur(vk) : 'Kein VK im Artikel – bitte Preis eintragen.';
+    else {
+      t = 'Summe ' + eur(p * m);
+      if (vk && Math.abs(p - vk) > 0.0001) t += ' · Sonderpreis (Liste ' + eur(vk) + ', ' + (p < vk ? '−' : '+') + Math.abs(Math.round((p - vk) / vk * 1000) / 10).toString().replace('.', ',') + ' %)';
+      if (akt.ek && p < Number(akt.ek)) t += ' · ⚠️ unter EK!';
+    }
+    $('preishint').textContent = t;
+  }
+
   function pruefeMenge() {
+    pruefePreis();
     if (!akt) return;
     var m = Number($('menge').value) || 0, v = Number(akt.verfuegbar) || 0, w = [];
     if (m > v) w.push('Mehr als verfügbar (' + zahl(v) + ' Stück).');
@@ -276,13 +307,17 @@
 
   function hinzufuegen() {
     if (!akt) return;
-    var nr = $('angebot').value, kunde = $('kunde').value, m = Number($('menge').value), name = akt.name;
+    var nr = $('angebot').value, kunde = $('kunde').value, m = Number($('menge').value), name = akt.name, p = preisWert();
+    if (p !== '' && (isNaN(p) || p < 0)) { meldung('Bitte einen gültigen Preis eingeben (z. B. 0,30).', false); return; }
+    var abw = p !== '' && Math.abs(p - (Number(akt.vk) || 0)) > 0.0001;
     if (!nr && !kunde) { meldung('Bitte zuerst einen Kunden für das neue Angebot wählen.', false); return; }
     if (!(m > 0)) { meldung('Bitte eine Menge eingeben.', false); return; }
     $('add').disabled = true; laed();
-    api({ api: 'hinzu', nr: nr, kunde: kunde, ean: akt.ean, menge: m }).then(function (r) {
+    var par = { api: 'hinzu', nr: nr, kunde: kunde, ean: akt.ean, menge: m };
+    if (abw) par.preis = p; // nur abweichender Preis wird gespeichert, sonst gilt der Listenpreis
+    api(par).then(function (r) {
       $('add').disabled = false; status('bereit');
-      meldung('✓ ' + zahl(m) + ' × ' + esc(name) + ' – ' + esc(r.msg) + ' in ' + esc(r.nr), true);
+      meldung('✓ ' + zahl(m) + ' × ' + esc(name) + (abw ? ' zu ' + eur(p) : '') + ' – ' + esc(r.msg) + ' in ' + esc(r.nr), true);
       akt = null; $('hinzu').classList.add('hidden'); $('artikel').classList.add('hidden'); $('ean').value = '';
       zeigeBelegDaten(r);
       ladeStamm(r.nr).catch(fehler);
@@ -299,7 +334,7 @@
         return '<div class="pos"><div class="n">' + esc(p.name) + '<small>' + esc(p.ean) + '</small></div><div>' + zahl(p.menge) + '×</div><div>' + eur(p.gesamt) + '</div></div>';
       }).join('') : '<div class="hint">Noch keine Positionen.</div>') +
       '<div class="summe"><span>Summe netto</span><span>' + eur(r.summe) + '</span></div>' +
-      '<div class="hint">PDF: am Rechner Menü Warenwirtschaft → Beleg anzeigen → PDF erstellen.</div>';
+      '<div class="hint">PDF erstellen: in der Büro-App den Beleg öffnen → „PDF-Vorschau“.</div>';
   }
 
   // ---- Kamera: live, erkennt automatisch, schließt sich selbst ----
@@ -527,17 +562,13 @@
   $('menge').oninput = pruefeMenge;
   $('angebot').onchange = angebotWechsel;
   $('add').onclick = hinzufuegen;
-  $('codeOk').onclick = function () {
-    var id = $('apiId').value.trim(), m = id.match(/\/s\/([A-Za-z0-9_-]+)/);
-    if (m) id = m[1];
-    TOKEN = $('code').value.trim(); API = apiUrl(id);
-    try { localStorage.setItem('scanToken', TOKEN); localStorage.setItem('scanApi', id); } catch (e) {}
-    meldung(''); laed();
-    ladeStamm().then(function () { status('bereit'); zeigeZugang(false); }).catch(fehler);
-  };
+  $('preis').oninput = pruefePreis;
+  $('lOk').onclick = anmelden;
+  $('lPw').addEventListener('keydown', function (e) { if (e.key === 'Enter') anmelden(); });
+  $('abmelden').onclick = function (e) { e.preventDefault(); abmelden(); };
 
-  ladeToken();
-  if (!TOKEN || !API) zeigeZugang(true);
+  ladeSitzung();
+  if (!SITZUNG) zeigeZugang(true);
   else { laed(); ladeStamm().then(function () { status('bereit'); }).catch(fehler); }
 </script>
 </body>

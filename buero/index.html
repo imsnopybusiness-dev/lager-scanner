@@ -107,7 +107,7 @@
   .summen { margin-left:auto; max-width:340px; }
   .summen div { display:flex; justify-content:space-between; padding:4px 0; }
   .summen .gross { font-size:17px; font-weight:700; border-top:1px solid var(--l); padding-top:8px; margin-top:4px; }
-  .neu-pos { display:grid; grid-template-columns:1fr 110px 110px auto; gap:8px; align-items:end; margin-top:14px; }
+  .neu-pos { display:grid; grid-template-columns:1fr 100px 100px auto; gap:8px; align-items:end; margin-top:14px; }
   .ac { position:relative; }
   .ac-liste { position:absolute; left:0; right:0; top:100%; background:#fff; border:1px solid var(--l); border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.12); z-index:30; max-height:320px; overflow:auto; margin-top:4px; }
   .ac-liste div { display:flex; gap:10px; align-items:center; padding:7px 10px; cursor:pointer; }
@@ -167,7 +167,7 @@
       <a href="#sortiment" data-s="sortiment"><span class="ico">📋</span>Sortimentsliste</a>
       <a href="#einstellungen" data-s="einstellungen"><span class="ico">⚙️</span>Einstellungen</a>
     </nav>
-    <div class="fuss">Daten liegen in eurem Google Sheet.<br><a href="../" id="scannerLink">Zum Scanner</a></div>
+    <div class="fuss"><div id="wer" style="margin-bottom:6px"></div>Daten liegen in eurem Google Sheet.<br><a href="../" id="scannerLink">Zum Scanner</a></div>
   </aside>
   <main id="main"><div class="skeleton">Lädt …</div></main>
 </div>
@@ -176,7 +176,8 @@
 
 <script>
 /* ============================ Grundlagen ============================ */
-var API = '', TOKEN = '';
+var STANDARD_API = 'AKfycbwLqf5z3A39SYeigqJvWV0uRUWMLRiRI2q2HonVWnG2MhDxsfl7sTyXTtdeJoea4uSl';
+var API = '', SITZUNG = '', NAME = '';
 var C = { artikel: null, kunden: null, lieferanten: null, einst: null };
 var $ = function (s, el) { return (el || document).querySelector(s); };
 var $$ = function (s, el) { return Array.prototype.slice.call((el || document).querySelectorAll(s)); };
@@ -188,28 +189,41 @@ var zahl = function (x) { return (x === '' || x == null) ? '–' : Number(x).toL
 var proz = function (x) { return (x === '' || x == null) ? '–' : (Number(x) * 100).toLocaleString('de-DE', { maximumFractionDigits: 1 }) + ' %'; };
 var datum = function (iso) { if (!iso) return ''; var m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? m[3] + '.' + m[2] + '.' + m[1] : iso; };
 var komma = function (x) { return x === '' || x == null ? '' : String(x).replace('.', ','); };
+var preisFeld = function (x) { return x === '' || x == null || isNaN(Number(x)) ? '' : Number(x).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 3, useGrouping: false }); };
 var heuteIso = function () { var d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
 
-function apiUrl(id) { return id ? 'https://script.google.com/macros/s/' + id + '/exec' : ''; }
-function ladeZugang() {
-  var t = location.hash.match(/[#&]t=([A-Za-z0-9]+)/), a = location.hash.match(/[#&]a=([A-Za-z0-9_-]+)/);
-  try { if (t) localStorage.setItem('scanToken', t[1]); if (a) localStorage.setItem('scanApi', a[1]); } catch (e) {}
-  var lt = '', la = '';
-  try { lt = localStorage.getItem('scanToken') || ''; la = localStorage.getItem('scanApi') || ''; } catch (e) {}
-  TOKEN = t ? t[1] : lt; API = apiUrl(a ? a[1] : la);
-  if (t || a) history.replaceState(null, '', location.pathname + '#uebersicht');
+function apiUrl(id) { return 'https://script.google.com/macros/s/' + id + '/exec'; }
+var lies = function (k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } };
+var schreib = function (k, v) { try { if (v) localStorage.setItem(k, v); else localStorage.removeItem(k); } catch (e) {} };
+function ladeSitzung() {
+  var a = location.hash.match(/[#&]a=([A-Za-z0-9_-]+)/);
+  if (a) schreib('scanApi', a[1]);
+  schreib('scanToken', ''); // alter Zugangscode wird nicht mehr verwendet
+  if (/[#&](t|a)=/.test(location.hash)) history.replaceState(null, '', location.pathname + '#uebersicht');
+  API = apiUrl(lies('scanApi') || STANDARD_API);
+  SITZUNG = lies('wwSitzung'); NAME = lies('wwName');
+  zeigeWer();
+}
+function zeigeWer() {
+  $('#wer').innerHTML = SITZUNG && NAME ? 'Angemeldet als <b>' + esc(NAME) + '</b> · <a href="#" id="abmeldenLink">Abmelden</a>' : '';
+  var l = $('#abmeldenLink'); if (l) l.onclick = function (e) { e.preventDefault(); abmelden(); };
+}
+function abmelden() {
+  api('logout').catch(function () {});
+  SITZUNG = ''; schreib('wwSitzung', ''); zeigeWer(); zeigeZugang();
 }
 
 var laufend = 0;
 function laedt(an) { laufend += an ? 1 : -1; $('#laden').style.display = laufend > 0 ? 'block' : 'none'; }
 function api(aktion, params) {
-  var body = Object.assign({ t: TOKEN, api: aktion }, params || {});
+  var body = Object.assign({ s: SITZUNG, api: aktion }, params || {});
+  if (aktion === 'login') delete body.s;
   laedt(true);
   return fetch(API, { method: 'POST', body: JSON.stringify(body), redirect: 'follow' })
     .then(function (r) { if (!r.ok) throw new Error('Server antwortet nicht (' + r.status + '). Bitte nochmal versuchen.'); return r.json(); })
     .then(function (d) {
       laedt(false);
-      if (!d.ok) { if (/Kein Zugriff/.test(d.error)) zeigeZugang(); throw new Error(d.error); }
+      if (!d.ok) { if (/anmelden/i.test(d.error) && aktion !== 'login') { SITZUNG = ''; schreib('wwSitzung', ''); zeigeWer(); zeigeZugang(); } throw new Error(d.error); }
       return d.data;
     }, function (e) { laedt(false); if (e instanceof TypeError) throw new Error('Keine Verbindung – Internet prüfen.'); throw e; });
 }
@@ -328,7 +342,7 @@ function artikelSuche(input, waehle) {
 /* ============================ Router ============================ */
 var SEITEN = {};
 function route() {
-  if (!TOKEN || !API) { zeigeZugang(); return; }
+  if (!SITZUNG) { zeigeZugang(); return; }
   var h = (location.hash || '#uebersicht').slice(1), teile = h.split('/'), s = teile[0] || 'uebersicht';
   $$('#nav a').forEach(function (a) { a.classList.toggle('aktiv', a.dataset.s === s || (s === 'beleg' && a.dataset.s === 'belege')); });
   var f = SEITEN[s] || SEITEN.uebersicht;
@@ -339,14 +353,21 @@ function route() {
 window.addEventListener('hashchange', route);
 
 function zeigeZugang() {
-  $('#main').innerHTML = '<div class="karte zugang"><h2>Zugang einrichten</h2><p class="grau">Öffnet am einfachsten den Link aus dem Google Sheet: Menü <b>Warenwirtschaft → Zugang Büro-App & Scanner anzeigen</b>. Oder beides hier einfügen:</p>' +
-    '<div class="feld"><label>Bereitstellungs-ID oder Web-App-URL</label><input id="zApi" placeholder="AKfycb…"></div>' +
-    '<div class="feld"><label>Zugangscode</label><input id="zCode"></div><button class="btn" id="zOk">Speichern</button></div>';
-  $('#zOk').onclick = function () {
-    var id = $('#zApi').value.trim(), m = id.match(/\/s\/([A-Za-z0-9_-]+)/); if (m) id = m[1];
-    TOKEN = $('#zCode').value.trim(); API = apiUrl(id);
-    try { localStorage.setItem('scanToken', TOKEN); localStorage.setItem('scanApi', id); } catch (e) {}
-    location.hash = '#uebersicht'; route();
+  $$('#nav a').forEach(function (a) { a.classList.remove('aktiv'); });
+  $('#main').innerHTML = '<div class="karte zugang"><h2>Anmelden</h2><p class="grau" style="margin-top:0">Mit eurem Namen und Passwort. Benutzer und Passwörter legt ihr im Google Sheet an: <b>Warenwirtschaft → Benutzer & Passwörter</b>. Die Anmeldung bleibt 30 Tage auf diesem Rechner gespeichert.</p>' +
+    '<form id="lForm"><div class="feld"><label>Name</label><input id="lName" autocomplete="username" value="' + esc(NAME) + '"></div>' +
+    '<div class="feld"><label>Passwort</label><input id="lPw" type="password" autocomplete="current-password"></div><button class="btn" id="lOk" type="submit">Anmelden</button></form></div>';
+  setTimeout(function () { $(NAME ? '#lPw' : '#lName').focus(); }, 30);
+  $('#lForm').onsubmit = function (e) {
+    e.preventDefault();
+    var name = $('#lName').value.trim(), pw = $('#lPw').value;
+    if (!name || !pw) { toast('Bitte Name und Passwort eingeben.', true); return; }
+    mitKnopf($('#lOk'), api('login', { name: name, pw: pw })).then(function (d) {
+      SITZUNG = d.sitzung; NAME = d.name; schreib('wwSitzung', SITZUNG); schreib('wwName', NAME); zeigeWer();
+      C.artikel = C.einst = null;
+      if (!location.hash || location.hash === '#') location.hash = '#uebersicht'; else route();
+      toast('Willkommen, ' + NAME + '!');
+    }).catch(function (e) { $('#lPw').value = ''; fehler(e); });
   };
 }
 
@@ -432,7 +453,7 @@ function zeichneArtikel() {
     var v = Number(a.verfuegbar) || 0, kl = v <= 0 ? 'zahl-leer' : (v <= schwelle ? 'zahl-knapp' : 'zahl-gut');
     return '<tr class="klick" data-ean="' + esc(a.ean) + '"><td>' + bildTag(a.bild) + '</td><td class="mono">' + esc(a.ean) + '</td><td>' + esc(a.name) + (a.aktiv === 'Nein' ? ' <span class="badge">inaktiv</span>' : '') + '</td><td>' + esc(a.kategorie) + '</td>' +
       '<td class="z">' + zahl(a.ve) + '</td><td class="z ' + kl + '">' + zahl(a.verfuegbar) + '</td><td class="z">' + eurP(a.ek) + '</td>' +
-      (s ? '<td class="z"><input class="inl" data-f="vk" value="' + esc(komma(a.vk)) + '" placeholder="VK"></td><td class="z"><input class="inl" data-f="uvp" value="' + esc(komma(a.uvp)) + '" placeholder="UVP"></td>'
+      (s ? '<td class="z"><input class="inl" data-f="vk" value="' + esc(preisFeld(a.vk)) + '" placeholder="VK"></td><td class="z"><input class="inl" data-f="uvp" value="' + esc(preisFeld(a.uvp)) + '" placeholder="UVP"></td>'
          : '<td class="z">' + eurP(a.vk) + '</td><td class="z">' + eur(a.uvp) + '</td>') +
       '<td class="z">' + proz(a.marge) + '</td></tr>';
   }).join('') : '<tr><td colspan="10" class="leerstand">Keine Artikel gefunden.</td></tr>';
@@ -570,12 +591,13 @@ function zeichneBeleg(b, e) {
         '<td class="z">' + zahl(p.ve) + '</td><td class="z">' + zahl(p.verfuegbar) + '</td>' +
         '<td class="z">' + (bearbeitbar ? '<input class="inl" data-f="menge" style="width:76px" value="' + p.menge + '" inputmode="numeric">' : zahl(p.menge)) + '</td>' +
         '<td class="z">' + (bearbeitbar ? '<input class="inl" style="width:58px" data-f="rabatt" value="' + (p.rabatt ? komma(Math.round(p.rabatt * 1000) / 10) : '') + '" placeholder="0">' : (p.rabatt ? komma(p.rabatt * 100) + ' %' : '')) + '</td>' +
-        '<td class="z">' + eurP(p.preis) + '</td><td class="z"><b>' + eur(p.gesamt) + '</b></td>' +
+        '<td class="z">' + (bearbeitbar ? '<input class="inl" style="width:78px' + (p.preisManuell !== '' ? ';border-color:var(--o);background:var(--o2)' : '') + '" data-f="preis" value="' + esc(preisFeld(p.preis)) + '" title="Eigener Preis – leer lassen = Listenpreis">' +
+          (p.preisManuell !== '' ? '<br><small class="grau">Liste ' + eurP(p.vk) + '</small>' : '') : eurP(p.preis)) + '</td><td class="z"><b>' + eur(p.gesamt) + '</b></td>' +
         '<td>' + (bearbeitbar ? '<button class="icon-btn weg" title="Position entfernen">✕</button>' : '') + '</td></tr>';
     }).join('') : '<tr><td colspan="9" class="leerstand">Noch keine Positionen – unten Artikel suchen und hinzufügen.</td></tr>') +
     '</tbody></table></div>' +
     (bearbeitbar ? '<div class="neu-pos"><div class="ac"><label>Artikel hinzufügen (Name oder EAN)</label><input id="npSuche" placeholder="z. B. Weihnachtskarte oder 4052…" autocomplete="off"></div>' +
-      '<div><label>Menge</label><input id="npMenge" inputmode="numeric"></div><div><label>Rabatt %</label><input id="npRabatt" placeholder="0"></div><button class="btn" id="npOk">Hinzufügen</button></div>' : '') +
+      '<div><label>Menge</label><input id="npMenge" inputmode="numeric"></div><div><label>Preis €</label><input id="npPreis" placeholder="Liste"></div><button class="btn" id="npOk">Hinzufügen</button></div>' : '') +
     '<div class="summen" style="margin-top:16px"><div><span>Summe netto</span><b>' + eur(b.summe) + '</b></div><div class="grau"><span>MwSt ' + Math.round(b.mwst * 100) + ' %</span><span>' + eur(mw) + '</span></div>' +
     '<div class="gross"><span>Gesamt brutto</span><span>' + eur(b.summe + mw) + '</span></div>' +
     '<div class="grau" style="font-size:12.5px"><span>Rohertrag (netto − EK)</span><span>' + eur(roh) + (b.summe ? ' · ' + proz(roh / b.summe) : '') + '</span></div></div></div>' +
@@ -600,8 +622,12 @@ function zeichneBeleg(b, e) {
   $$('input.inl').forEach(function (inp) {
     inp.onchange = function () {
       var tr = inp.closest('tr'), ean = tr.dataset.ean;
-      var menge = $('input[data-f="menge"]', tr).value, rabatt = $('input[data-f="rabatt"]', tr).value;
-      api('b_position', { nr: b.nr, ean: ean, menge: menge, rabatt: rabatt || 0 }).then(neu).catch(fehler);
+      var par = { nr: b.nr, ean: ean, menge: $('input[data-f="menge"]', tr).value, rabatt: $('input[data-f="rabatt"]', tr).value || 0 };
+      if (inp.dataset.f === 'preis') {
+        var pos = b.positionenListe.filter(function (x) { return x.ean === ean; })[0] || {}, w = inp.value.trim().replace(',', '.');
+        par.preis = (w === '' || (pos.vk !== '' && Math.abs(Number(w) - Number(pos.vk)) < 0.0001)) ? '' : inp.value.trim(); // gleich Listenpreis → kein Sonderpreis
+      }
+      api('b_position', par).then(neu).catch(fehler);
     };
     inp.onkeydown = function (ev) { if (ev.key === 'Enter') inp.blur(); };
   });
@@ -614,18 +640,20 @@ function zeichneBeleg(b, e) {
   if ($('#npSuche')) {
     artikelSuche($('#npSuche'), function (a) {
       gewaehlt = a; $('#npSuche').value = a.name + ' (' + a.ean + ')';
-      $('#npMenge').value = a.ve || 1; $('#npMenge').focus(); $('#npMenge').select();
+      $('#npMenge').value = a.ve || 1; $('#npPreis').placeholder = a.vk ? preisFeld(a.vk) : 'Preis'; $('#npMenge').focus(); $('#npMenge').select();
     });
     var hinzu = function () {
       var s = $('#npSuche').value.trim();
       var ean = gewaehlt ? gewaehlt.ean : (/^\d{8,14}$/.test(s) ? s : '');
       if (!ean) { toast('Bitte einen Artikel aus der Liste wählen.', true); return; }
-      mitKnopf($('#npOk'), api('b_position', { nr: b.nr, ean: ean, menge: $('#npMenge').value || (gewaehlt && gewaehlt.ve) || 1, rabatt: $('#npRabatt').value || 0 }))
+      var par = { nr: b.nr, ean: ean, menge: $('#npMenge').value || (gewaehlt && gewaehlt.ve) || 1 };
+      if ($('#npPreis').value.trim()) par.preis = $('#npPreis').value.trim();
+      mitKnopf($('#npOk'), api('b_position', par))
         .then(function (x) { neu(x); setTimeout(function () { $('#npSuche') && $('#npSuche').focus(); }, 50); }).catch(fehler);
     };
     $('#npOk').onclick = hinzu;
     $('#npMenge').onkeydown = function (ev) { if (ev.key === 'Enter') hinzu(); };
-    $('#npRabatt').onkeydown = function (ev) { if (ev.key === 'Enter') hinzu(); };
+    $('#npPreis').onkeydown = function (ev) { if (ev.key === 'Enter') hinzu(); };
   }
   // Kopf
   $('#bkSpeichern').onclick = function () {
@@ -807,19 +835,19 @@ SEITEN.einstellungen = function () {
       }).join('') + '</div></div>' +
       '<div><div class="karte"><h2>Kategorien</h2><label>Eine Kategorie pro Zeile</label><textarea id="esKat" style="min-height:240px">' + esc(e.kategorien.join('\n')) + '</textarea></div>' +
       '<div class="karte"><h2>Hinweise</h2><div class="feld"><label>„Fast ausverkauft“ ab verfügbar ≤ (Stück)</label><input id="esSchw" value="' + esc(e.schwelle) + '"></div></div>' +
-      '<div class="karte"><h2>Zugang</h2><p class="grau" style="margin-top:0">Links für Büro-App und Scanner sowie das Erneuern des Zugangscodes findet ihr im Google Sheet unter <b>Warenwirtschaft → Zugang Büro-App & Scanner</b>.</p>' +
+      '<div class="karte"><h2>Sicherheit</h2><p class="grau" style="margin-top:0">Angemeldet als <b>' + esc(NAME) + '</b>. Benutzer, Passwörter und „Alle Geräte abmelden“ findet ihr im Google Sheet unter <b>Warenwirtschaft</b>. Jede Änderung wird im Tab <b>Protokoll</b> festgehalten.</p>' +
       '<button class="btn sek klein" id="esAbm">Auf diesem Rechner abmelden</button></div></div></div>';
     $('#esOk').onclick = function () {
       var felder = $$('input[data-z]').map(function (i) { var z = +i.dataset.z, w = i.value; if (z === 18) { var n = parseFloat(w.replace(',', '.')); w = isNaN(n) ? '' : String(n > 1 ? n / 100 : n); } return { zeile: z, wert: w }; });
       mitKnopf(this, api('b_einstellungen_speichern', { daten: { felder: felder, kategorien: $('#esKat').value.split('\n'), schwelle: $('#esSchw').value } }))
         .then(function (d) { C.einst = d; toast('Einstellungen gespeichert.'); }).catch(fehler);
     };
-    $('#esAbm').onclick = function () { try { localStorage.removeItem('scanToken'); localStorage.removeItem('scanApi'); } catch (x) {} TOKEN = ''; API = ''; zeigeZugang(); };
+    $('#esAbm').onclick = abmelden;
   }).catch(fehler);
 };
 
 /* ============================ Start ============================ */
-ladeZugang();
+ladeSitzung();
 route();
 </script>
 </body>
