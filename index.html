@@ -80,6 +80,24 @@
   #scanInfo { position:absolute; left:0; right:0; top:calc(20px + env(safe-area-inset-top)); text-align:center; color:#fff; font-size:16px; padding:0 20px; text-shadow:0 1px 3px #000; }
   #scan .bar { position:absolute; left:0; right:0; bottom:0; padding:16px 16px calc(20px + env(safe-area-inset-bottom)); display:flex; gap:10px; }
   #scan .bar button.an { background:#FFD60A; }
+  /* Zuschneiden */
+  #crop { position:fixed; inset:0; background:#000; z-index:60; user-select:none; -webkit-user-select:none; }
+  #cropFlaeche { position:absolute; left:0; right:0; top:calc(52px + env(safe-area-inset-top)); bottom:calc(92px + env(safe-area-inset-bottom)); overflow:hidden; touch-action:none; }
+  #cropImg { position:absolute; display:block; pointer-events:none; }
+  #cropRahmen { position:absolute; border:2px solid #fff; box-shadow:0 0 0 9999px rgba(0,0,0,.55); touch-action:none; }
+  #cropRahmen::before, #cropRahmen::after { content:''; position:absolute; border:0 solid rgba(255,255,255,.45); pointer-events:none; }
+  #cropRahmen::before { left:33.33%; right:33.33%; top:0; bottom:0; border-left-width:1px; border-right-width:1px; }
+  #cropRahmen::after { top:33.33%; bottom:33.33%; left:0; right:0; border-top-width:1px; border-bottom-width:1px; }
+  #cropRahmen i { position:absolute; width:30px; height:30px; border:4px solid #fff; }
+  #cropRahmen i[data-e="nw"] { left:-5px; top:-5px; border-right:0; border-bottom:0; }
+  #cropRahmen i[data-e="ne"] { right:-5px; top:-5px; border-left:0; border-bottom:0; }
+  #cropRahmen i[data-e="sw"] { left:-5px; bottom:-5px; border-right:0; border-top:0; }
+  #cropRahmen i[data-e="se"] { right:-5px; bottom:-5px; border-left:0; border-top:0; }
+  #cropTitel { position:absolute; left:0; right:0; top:calc(14px + env(safe-area-inset-top)); text-align:center; color:#fff; font-size:15px; }
+  #crop .bar { position:absolute; left:0; right:0; bottom:0; padding:14px 12px calc(18px + env(safe-area-inset-bottom)); display:flex; gap:8px; }
+  #crop .bar button { flex:1; font-size:15px; padding:14px 6px; border-radius:12px; background:rgba(255,255,255,.16); color:#fff; }
+  #crop .bar button.an { background:#fff; color:#111; }
+  #crop .bar button.prim { background:#34c759; color:#fff; flex:1.3; }
   #scan .bar button { flex:1; font-size:17px; padding:15px; border-radius:14px; background:rgba(255,255,255,.95); color:#111; }
 </style>
 </head>
@@ -148,6 +166,12 @@
   <input type="file" id="fileKamera" accept="image/*" capture="environment" class="hidden">
   <input type="file" id="fileFotos" accept="image/*" class="hidden">
 </main>
+
+<div id="crop" class="hidden">
+  <div id="cropTitel">Bild zuschneiden – Ecken ziehen</div>
+  <div id="cropFlaeche"><img id="cropImg" alt=""><div id="cropRahmen"><i data-e="nw"></i><i data-e="ne"></i><i data-e="sw"></i><i data-e="se"></i></div></div>
+  <div class="bar"><button id="cropAbbr">Abbrechen</button><button id="cropDreh">⟳ Drehen</button><button id="cropQuad">□ Quadrat</button><button id="cropOk" class="prim">Übernehmen</button></div>
+</div>
 
 <div id="scan" class="hidden">
   <video id="video" playsinline muted autoplay></video>
@@ -513,11 +537,12 @@
     if (art === 'wahl') { $('fileFotos').click(); return; } // iPhone fragt: Foto aufnehmen / Fotomediathek
     (art === 'kamera' ? $('fileKamera') : $('fileFotos')).click();
   }
-  function verkleinern(file) {
+  function verkleinern(file, max) {
+    max = max || 1200;
     return new Promise(function (ok, nein) {
       var url = URL.createObjectURL(file), img = new Image();
       img.onload = function () {
-        var max = 1200, w = img.naturalWidth, h = img.naturalHeight, f = Math.min(1, max / Math.max(w, h));
+        var w = img.naturalWidth, h = img.naturalHeight, f = Math.min(1, max / Math.max(w, h));
         var cv = document.createElement('canvas'); cv.width = Math.round(w * f); cv.height = Math.round(h * f);
         var g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height); g.drawImage(img, 0, 0, cv.width, cv.height);
         URL.revokeObjectURL(url); ok(cv.toDataURL('image/jpeg', 0.82));
@@ -526,11 +551,111 @@
       img.src = url;
     });
   }
+  // ---- Zuschneiden: Rahmen mit dem Finger ziehen, drehen, quadratisch ----
+  var cr = null;
+  function zuschneiden(dataUrl) {
+    return new Promise(function (fertig) {
+      cr = { src: dataUrl, quad: false, fertig: fertig, r: null, bild: null };
+      $('cropQuad').classList.remove('an');
+      $('crop').classList.remove('hidden');
+      cropLaden(dataUrl);
+    });
+  }
+  function cropLaden(src) {
+    var img = $('cropImg');
+    img.onload = function () {
+      var fl = $('cropFlaeche').getBoundingClientRect(), nw = img.naturalWidth, nh = img.naturalHeight;
+      var f = Math.min(fl.width / nw, fl.height / nh), w = nw * f, h = nh * f;
+      cr.bild = { x: (fl.width - w) / 2, y: (fl.height - h) / 2, w: w, h: h, f: f };
+      img.style.left = cr.bild.x + 'px'; img.style.top = cr.bild.y + 'px'; img.style.width = w + 'px'; img.style.height = h + 'px';
+      cropStart();
+    };
+    img.src = src; cr.src = src;
+  }
+  function cropStart() {
+    var b = cr.bild, m = 0.06;
+    if (cr.quad) { var s = Math.min(b.w, b.h) * (1 - 2 * m); cr.r = { x: b.x + (b.w - s) / 2, y: b.y + (b.h - s) / 2, w: s, h: s }; }
+    else cr.r = { x: b.x + b.w * m, y: b.y + b.h * m, w: b.w * (1 - 2 * m), h: b.h * (1 - 2 * m) };
+    cropZeichnen();
+  }
+  function cropZeichnen() {
+    var e = $('cropRahmen').style, r = cr.r;
+    e.left = r.x + 'px'; e.top = r.y + 'px'; e.width = r.w + 'px'; e.height = r.h + 'px';
+  }
+  function cropBegrenzen(r, ecke) {
+    var b = cr.bild, min = 40;
+    if (cr.quad && ecke) {
+      var s = Math.max(min, Math.min(r.w, r.h));
+      if (ecke.indexOf('w') >= 0) r.x = r.x + r.w - s; if (ecke.indexOf('n') >= 0) r.y = r.y + r.h - s;
+      r.w = r.h = s;
+    }
+    r.w = Math.max(min, Math.min(r.w, b.w)); r.h = Math.max(min, Math.min(r.h, b.h));
+    if (cr.quad) { var q = Math.min(r.w, r.h); r.w = r.h = q; }
+    r.x = Math.max(b.x, Math.min(r.x, b.x + b.w - r.w)); r.y = Math.max(b.y, Math.min(r.y, b.y + b.h - r.h));
+    return r;
+  }
+  (function () {
+    var start = null;
+    $('cropFlaeche').addEventListener('pointerdown', function (e) {
+      if (!cr || !cr.r) return;
+      var ecke = e.target.dataset && e.target.dataset.e;
+      var fl = $('cropFlaeche').getBoundingClientRect(), px = e.clientX - fl.left, py = e.clientY - fl.top, r = cr.r;
+      if (!ecke && !(px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h)) return;
+      e.preventDefault();
+      $('cropFlaeche').setPointerCapture(e.pointerId);
+      start = { ecke: ecke || 'mitte', px: px, py: py, r: { x: r.x, y: r.y, w: r.w, h: r.h } };
+    });
+    $('cropFlaeche').addEventListener('pointermove', function (e) {
+      if (!start) return;
+      e.preventDefault();
+      var fl = $('cropFlaeche').getBoundingClientRect(), dx = e.clientX - fl.left - start.px, dy = e.clientY - fl.top - start.py, o = start.r, r;
+      if (start.ecke === 'mitte') r = { x: o.x + dx, y: o.y + dy, w: o.w, h: o.h };
+      else {
+        r = { x: o.x, y: o.y, w: o.w, h: o.h };
+        if (start.ecke.indexOf('w') >= 0) { r.x = Math.min(o.x + dx, o.x + o.w - 40); r.w = o.x + o.w - r.x; } else r.w = o.w + dx;
+        if (start.ecke.indexOf('n') >= 0) { r.y = Math.min(o.y + dy, o.y + o.h - 40); r.h = o.y + o.h - r.y; } else r.h = o.h + dy;
+        var b = cr.bild;
+        if (r.x < b.x) { r.w -= b.x - r.x; r.x = b.x; } if (r.y < b.y) { r.h -= b.y - r.y; r.y = b.y; }
+        r.w = Math.min(r.w, b.x + b.w - r.x); r.h = Math.min(r.h, b.y + b.h - r.y);
+      }
+      cr.r = cropBegrenzen(r, start.ecke === 'mitte' ? null : start.ecke); cropZeichnen();
+    });
+    var ende = function () { start = null; };
+    $('cropFlaeche').addEventListener('pointerup', ende); $('cropFlaeche').addEventListener('pointercancel', ende);
+  })();
+  function cropDrehen() {
+    var img = new Image();
+    img.onload = function () {
+      var cv = document.createElement('canvas'); cv.width = img.naturalHeight; cv.height = img.naturalWidth;
+      var g = cv.getContext('2d'); g.translate(cv.width, 0); g.rotate(Math.PI / 2); g.drawImage(img, 0, 0);
+      cropLaden(cv.toDataURL('image/jpeg', 0.92));
+    };
+    img.src = cr.src;
+  }
+  function cropFertig(ergebnis) {
+    $('crop').classList.add('hidden'); var f = cr.fertig; cr = null; f(ergebnis);
+  }
+  function cropUebernehmen() {
+    var b = cr.bild, r = cr.r, img = $('cropImg');
+    var sx = (r.x - b.x) / b.f, sy = (r.y - b.y) / b.f, sw = r.w / b.f, sh = r.h / b.f;
+    var z = Math.min(1, 1200 / Math.max(sw, sh));
+    var cv = document.createElement('canvas'); cv.width = Math.round(sw * z); cv.height = Math.round(sh * z);
+    var g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height);
+    g.imageSmoothingQuality = 'high'; g.drawImage(img, sx, sy, sw, sh, 0, 0, cv.width, cv.height);
+    cropFertig(cv.toDataURL('image/jpeg', 0.85));
+  }
+  $('cropAbbr').onclick = function () { cropFertig(null); };
+  $('cropDreh').onclick = cropDrehen;
+  $('cropQuad').onclick = function () { cr.quad = !cr.quad; this.classList.toggle('an', cr.quad); cropStart(); };
+  $('cropOk').onclick = cropUebernehmen;
+  window.addEventListener('resize', function () { if (cr) cropLaden(cr.src); });
+
   function dateiGewaehlt(ev) {
     var f = ev.target.files && ev.target.files[0]; ev.target.value = '';
     if (!f) return;
     laed();
-    verkleinern(f).then(function (data) {
+    verkleinern(f, 2000).then(function (roh) { status('bereit'); return zuschneiden(roh); }).then(function (data) {
+      if (!data) return; // abgebrochen
       if (bildZiel === 'neu') {
         neuBild = data; $('neuVorschau').src = data; $('neuVorschau').classList.remove('hidden'); status('bereit');
         return;
