@@ -2,6 +2,7 @@
 <html lang="de">
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#2E5E3E">
 <link rel="icon" href="../icon.png">
@@ -162,6 +163,7 @@
       <a href="#artikel" data-s="artikel"><span class="ico">📦</span>Artikel</a>
       <a href="#kunden" data-s="kunden"><span class="ico">🏪</span>Kunden</a>
       <a href="#wareneingang" data-s="wareneingang"><span class="ico">🚚</span>Wareneingang</a>
+      <a href="#kalkulation" data-s="kalkulation"><span class="ico">🧮</span>Kalkulation</a>
       <a href="#lieferanten" data-s="lieferanten"><span class="ico">🏭</span>Lieferanten</a>
       <div class="sep"></div>
       <a href="#sortiment" data-s="sortiment"><span class="ico">📋</span>Sortimentsliste</a>
@@ -175,6 +177,18 @@
 <div id="modalRoot"></div>
 
 <script>
+var APP_VERSION = '2026-10-20a';
+/* Selbst-Aktualisierung: holt die Seite ohne Cache und lädt neu, wenn es eine neuere Version gibt */
+(function () {
+  function pruefen() {
+    fetch(location.pathname + '?nc=' + Date.now(), {cache: 'no-store'}).then(function (r) { return r.text(); }).then(function (t) {
+      var m = t.match(/APP_VERSION = '([^']+)'/);
+      if (m && m[1] !== APP_VERSION && location.search.indexOf('v=' + m[1]) < 0) location.replace(location.pathname + '?v=' + m[1] + location.hash);
+    }).catch(function () {});
+  }
+  pruefen();
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) pruefen(); });
+})();
 /* ============================ Grundlagen ============================ */
 var STANDARD_API = 'AKfycbwLqf5z3A39SYeigqJvWV0uRUWMLRiRI2q2HonVWnG2MhDxsfl7sTyXTtdeJoea4uSl';
 var API = '', SITZUNG = '', NAME = '';
@@ -189,6 +203,14 @@ var zahl = function (x) { return (x === '' || x == null) ? '–' : Number(x).toL
 var proz = function (x) { return (x === '' || x == null) ? '–' : (Number(x) * 100).toLocaleString('de-DE', { maximumFractionDigits: 1 }) + ' %'; };
 var datum = function (iso) { if (!iso) return ''; var m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? m[3] + '.' + m[2] + '.' + m[1] : iso; };
 var komma = function (x) { return x === '' || x == null ? '' : String(x).replace('.', ','); };
+function staffelParse(s) {
+  s = String(s == null ? '' : s).trim(); if (!s || /^(keine|nein|aus|-)$/i.test(s)) return [];
+  var out = []; s.replace(/(\d[\d.]*)\s*(?:stk\.?|stück)?\s*[:=>]\s*(\d+(?:[.,]\d+)?)\s*%?/gi, function (m, ab, r) { out.push({ ab: Number(ab.replace(/\./g, '')), rabatt: Number(r.replace(',', '.')) / 100 }); });
+  return out.filter(function (x) { return x.ab > 0 && x.rabatt > 0 && x.rabatt < 1; }).sort(function (a, b) { return a.ab - b.ab; });
+}
+function staffelStd() { var f = C.einst && C.einst.felder.filter(function (x) { return x.zeile === 23; })[0]; return f ? String(f.wert || '') : ''; }
+function staffelWirksam(a) { var eig = String((a && a.staffel) || '').trim(); return staffelParse(eig ? eig : staffelStd()); }
+function staffelText(st, vk) { return st.map(function (x) { return 'ab ' + zahl(x.ab) + ' Stk −' + komma(Math.round(x.rabatt * 1000) / 10) + ' %' + (vk ? ' (' + eurP(vk * (1 - x.rabatt)) + ')' : ''); }).join(' · '); }
 var preisFeld = function (x) { return x === '' || x == null || isNaN(Number(x)) ? '' : Number(x).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 3, useGrouping: false }); };
 var heuteIso = function () { var d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
 
@@ -489,6 +511,8 @@ function artikelForm(ean, vorgabe) {
       '<div class="feld"><label>Lieferant</label><select id="fLieferant">' + opt(e.lieferanten.map(function (l) { return { v: l.nr, t: l.firma + ' (' + l.nr + ')' }; }), x.lieferant, '– keiner –') + '</select></div>' +
       '<div class="feld"><label>Lief.-Art.-Nr.</label><input id="fLiefArtNr" value="' + esc(x.liefArtNr || '') + '"></div>' +
       '<div class="feld"><label>Lagerplatz</label><input id="fLagerplatz" value="' + esc(x.lagerplatz || '') + '"></div>' +
+      '<div class="feld voll"><label>Staffel (ab Menge : Rabatt %)</label><input id="fStaffel" value="' + esc(x.staffel || '') + '" placeholder="' + esc(staffelStd() ? 'Standard: ' + staffelStd() : 'z. B. 500:5; 1000:10') + '">' +
+      '<div class="grau" id="fStaffelInfo" style="font-size:12px;margin-top:4px"></div></div>' +
       '<div class="feld"><label>VE (Stk/Karton)</label><input id="fVe" value="' + esc(komma(x.ve)) + '" inputmode="numeric"></div>' +
       '<div class="feld"><label>Kartons/Palette</label><input id="fKartonsPalette" value="' + esc(komma(x.kartonsPalette)) + '" inputmode="numeric"></div>' +
       '<div class="feld"><label>EK netto €</label><input id="fEk" value="' + esc(komma(x.ek)) + '" inputmode="decimal"></div>' +
@@ -500,7 +524,12 @@ function artikelForm(ean, vorgabe) {
     var dr = drawer(neu ? 'Neuer Artikel' : 'Artikel bearbeiten', inhalt, '<button class="btn sek" data-zu>Abbrechen</button><button class="btn" id="fSpeichern">Speichern</button>');
     $$('[data-zu]', dr.el).forEach(function (b) { b.onclick = dr.zu; });
     var marge = function () { var ek = parseFloat(($('#fEk').value || '').replace(',', '.')), vk = parseFloat(($('#fVk').value || '').replace(',', '.')); $('#fMarge').value = vk > 0 && ek >= 0 ? proz((vk - ek) / vk) + ' · ' + eurP(vk - ek) + ' je Stück' : ''; };
-    $('#fEk').oninput = marge; $('#fVk').oninput = marge; marge();
+    var stInfo = function () {
+      var t = $('#fStaffel').value.trim(), vk = parseFloat(($('#fVk').value || '').replace(',', '.')), st = staffelParse(t ? t : staffelStd());
+      $('#fStaffelInfo').textContent = /^(keine|nein|aus|-)$/i.test(t) ? 'Keine Staffel für diesen Artikel.' :
+        (st.length ? (t ? '' : 'Standard-Staffel: ') + staffelText(st, vk > 0 ? vk : 0) : (t ? '⚠️ Format: 500:5; 1000:10' : 'Keine Staffel (Standard in den Einstellungen festlegen). „keine“ = Staffel aus.'));
+    };
+    $('#fEk').oninput = marge; $('#fVk').oninput = function () { marge(); stInfo(); }; $('#fStaffel').oninput = stInfo; marge(); stInfo();
     var setzeBild = function (file) { bildVerkleinern(file).then(function (d) { bild = d; $('#bfV').innerHTML = '<img src="' + d + '" style="width:100%;height:100%;object-fit:contain;border-radius:10px">'; }).catch(fehler); };
     $('#bfW').onclick = function () { $('#bfF').click(); };
     $('#bfF').onchange = function () { if (this.files[0]) setzeBild(this.files[0]); };
@@ -510,7 +539,7 @@ function artikelForm(ean, vorgabe) {
     bf.ondrop = function (ev) { ev.preventDefault(); bf.classList.remove('drag'); var f = ev.dataTransfer.files[0]; if (f) setzeBild(f); };
     $('#fSpeichern').onclick = function () {
       var d = { altEan: a ? a.ean : '' };
-      ['ean', 'aktiv', 'name', 'beschreibung', 'kategorie', 'lieferant', 'liefArtNr', 'lagerplatz', 've', 'kartonsPalette', 'ek', 'vk', 'uvp', 'notiz', 'bildUrl', 'menge'].forEach(function (k) {
+      ['ean', 'aktiv', 'name', 'beschreibung', 'kategorie', 'lieferant', 'liefArtNr', 'lagerplatz', 'staffel', 've', 'kartonsPalette', 'ek', 'vk', 'uvp', 'notiz', 'bildUrl', 'menge'].forEach(function (k) {
         var el = $('#f' + k.charAt(0).toUpperCase() + k.slice(1)); if (el) d[k] = el.value;
       });
       if (bild) d.bild = bild;
@@ -590,7 +619,8 @@ function zeichneBeleg(b, e) {
       return '<tr data-ean="' + esc(p.ean) + '"><td>' + bildTag(p.bild) + '</td><td style="min-width:220px"><a href="#" class="artLink">' + esc(p.name) + '</a><br><small class="grau mono">' + esc(p.ean) + '</small>' + (ok ? '' : ' <span class="badge b-warn">' + esc(p.pruefung) + '</span>') + '</td>' +
         '<td class="z">' + zahl(p.ve) + '</td><td class="z">' + zahl(p.verfuegbar) + '</td>' +
         '<td class="z">' + (bearbeitbar ? '<input class="inl" data-f="menge" style="width:76px" value="' + p.menge + '" inputmode="numeric">' : zahl(p.menge)) + '</td>' +
-        '<td class="z">' + (bearbeitbar ? '<input class="inl" style="width:58px" data-f="rabatt" value="' + (p.rabatt ? komma(Math.round(p.rabatt * 1000) / 10) : '') + '" placeholder="0">' : (p.rabatt ? komma(p.rabatt * 100) + ' %' : '')) + '</td>' +
+        '<td class="z">' + (bearbeitbar ? '<input class="inl" style="width:58px" data-f="rabatt" value="' + (p.rabatt ? komma(Math.round(p.rabatt * 1000) / 10) : '') + '" placeholder="0">' : (p.rabatt ? komma(Math.round(p.rabatt * 1000) / 10) + ' %' : '')) +
+          (p.rabatt && p.staffelRabatt && Math.abs(p.rabatt - p.staffelRabatt) < 1e-9 ? '<br><small class="grau">Staffel</small>' : '') + '</td>' +
         '<td class="z">' + (bearbeitbar ? '<input class="inl" style="width:78px' + (p.preisManuell !== '' ? ';border-color:var(--o);background:var(--o2)' : '') + '" data-f="preis" value="' + esc(preisFeld(p.preis)) + '" title="Eigener Preis – leer lassen = Listenpreis">' +
           (p.preisManuell !== '' ? '<br><small class="grau">Liste ' + eurP(p.vk) + '</small>' : '') : eurP(p.preis)) + '</td><td class="z"><b>' + eur(p.gesamt) + '</b></td>' +
         '<td>' + (bearbeitbar ? '<button class="icon-btn weg" title="Position entfernen">✕</button>' : '') + '</td></tr>';
@@ -622,7 +652,8 @@ function zeichneBeleg(b, e) {
   $$('input.inl').forEach(function (inp) {
     inp.onchange = function () {
       var tr = inp.closest('tr'), ean = tr.dataset.ean;
-      var par = { nr: b.nr, ean: ean, menge: $('input[data-f="menge"]', tr).value, rabatt: $('input[data-f="rabatt"]', tr).value || 0 };
+      var par = { nr: b.nr, ean: ean, menge: $('input[data-f="menge"]', tr).value };
+      if (inp.dataset.f === 'rabatt') par.rabatt = inp.value.trim(); // leer = Staffel/kein Rabatt
       if (inp.dataset.f === 'preis') {
         var pos = b.positionenListe.filter(function (x) { return x.ean === ean; })[0] || {}, w = inp.value.trim().replace(',', '.');
         par.preis = (w === '' || (pos.vk !== '' && Math.abs(Number(w) - Number(pos.vk)) < 0.0001)) ? '' : inp.value.trim(); // gleich Listenpreis → kein Sonderpreis
@@ -803,6 +834,110 @@ function wareneingangForm(e) {
   };
 }
 
+/* ============================ Kalkulation ============================ */
+var kalk = { quelle: '', gesamt: '', kosten: '', vert: 'wert', ekUeb: true, methode: 'faktor', wert: '3', rund: '0.05', nurLeer: true, vkManuell: {} };
+SEITEN.kalkulation = function () {
+  Promise.all([api('b_wareneingang'), artikelListe(true), einst()]).then(function (r) {
+    var we = r[0], e = r[2], gruppen = [], gi = {};
+    we.forEach(function (w) {
+      var k = w.datum + '|' + w.lieferant + '|' + w.notiz;
+      if (!(k in gi)) { gi[k] = gruppen.length; gruppen.push({ key: k, titel: datum(w.datum) + ' · ' + (w.lieferant || 'ohne Lieferant') + (w.notiz ? ' · ' + w.notiz : ''), zeilen: [], summe: 0 }); }
+      var g = gruppen[gi[k]]; g.zeilen.push(w); g.summe += w.summe;
+    });
+    if (!kalk.quelle) kalk.quelle = gruppen.length ? gruppen[0].key : 'ohnevk';
+    var mwst = Number((e.felder.filter(function (f) { return f.zeile === 18; })[0] || {}).wert) || 0.19;
+    $('#main').innerHTML = kopf('Kalkulation', 'Einstandspreis aus Partie + Nebenkosten berechnen und VK-Preise vorschlagen', '<button class="btn" id="kOk">✓ Preise übernehmen</button>') +
+      '<div class="raster r3" style="margin-bottom:18px">' +
+      '<div class="karte" style="margin:0"><h2>1 · Partie</h2><div class="feld"><label>Welche Ware?</label><select id="kQ">' +
+      gruppen.map(function (g) { return '<option value="' + esc(g.key) + '">' + esc(g.titel) + ' (' + g.zeilen.length + ' Pos., ' + eur(g.summe) + ')</option>'; }).join('') +
+      '<option value="ohnevk">Alle Artikel ohne VK-Preis (Bestand)</option><option value="alle">Alle aktiven Artikel (Bestand)</option></select></div>' +
+      '<div class="grau" style="font-size:12.5px">Partie = ein gebuchter Wareneingang. Mengen und EK kommen von dort.</div></div>' +
+      '<div class="karte" style="margin:0"><h2>2 · Einstand</h2><div class="fg"><div class="feld"><label>Gesamtpreis Ware netto €</label><input id="kG" inputmode="decimal"></div>' +
+      '<div class="feld"><label>Nebenkosten € (Fracht, Zoll …)</label><input id="kK" inputmode="decimal" placeholder="0"></div></div>' +
+      '<div class="feld"><label>Nebenkosten verteilen</label><select id="kV"><option value="wert">nach Warenwert</option><option value="stueck">gleich pro Stück</option></select></div>' +
+      '<label class="chk"><input type="checkbox" id="kE"> Einstand als EK in den Artikeln speichern</label></div>' +
+      '<div class="karte" style="margin:0"><h2>3 · VK-Regel</h2><div class="fg"><div class="feld"><label>Methode</label><select id="kM"><option value="faktor">Aufschlag-Faktor (EK ×)</option><option value="marge">Ziel-Marge %</option><option value="uvp">Anteil der UVP (netto) %</option></select></div>' +
+      '<div class="feld"><label id="kWL">Faktor</label><input id="kW" inputmode="decimal"></div></div>' +
+      '<div class="fg"><div class="feld"><label>Runden auf</label><select id="kR"><option value="0.01">0,01 €</option><option value="0.05">0,05 €</option><option value="0.1">0,10 €</option><option value="9">…9 (z. B. 0,39)</option></select></div>' +
+      '<div class="feld" style="display:flex;align-items:end"><label class="chk"><input type="checkbox" id="kL"> nur Artikel ohne VK</label></div></div></div></div>' +
+      '<div class="raster r4" id="kSum" style="margin-bottom:18px"></div>' +
+      '<div class="karte"><div class="tab-wrap"><table><thead><tr><th></th><th>Artikel</th><th class="z">Menge</th><th class="z">EK bisher</th><th class="z">Einstand</th><th class="z">UVP</th><th class="z">VK bisher</th><th class="z">VK neu</th><th class="z">Marge</th></tr></thead><tbody id="kB"></tbody></table></div></div>';
+    $('#kQ').value = kalk.quelle; $('#kV').value = kalk.vert; $('#kE').checked = kalk.ekUeb; $('#kM').value = kalk.methode; $('#kW').value = kalk.wert; $('#kR').value = kalk.rund; $('#kL').checked = kalk.nurLeer; $('#kK').value = kalk.kosten;
+    var zeilen = [];
+    var ladeQuelle = function () {
+      var art = {}; C.artikel.forEach(function (a) { art[a.ean] = a; });
+      var m = {};
+      if (kalk.quelle === 'ohnevk' || kalk.quelle === 'alle') {
+        C.artikel.forEach(function (a) { if (a.aktiv !== 'Nein' && Number(a.bestand) > 0 && (kalk.quelle === 'alle' || !a.vk)) m[a.ean] = { menge: Number(a.bestand), wert: Number(a.bestand) * (Number(a.ek) || 0) }; });
+      } else {
+        (gruppen[gi[kalk.quelle]] || { zeilen: [] }).zeilen.forEach(function (w) { m[w.ean] = m[w.ean] || { menge: 0, wert: 0 }; m[w.ean].menge += w.menge; m[w.ean].wert += w.menge * (Number(w.ek) || 0); });
+      }
+      zeilen = Object.keys(m).map(function (ean) { var a = art[ean] || { name: ean }; return { ean: ean, a: a, menge: m[ean].menge, ekQ: m[ean].menge ? m[ean].wert / m[ean].menge : 0 }; });
+      var summe = zeilen.reduce(function (s, z) { return s + z.menge * z.ekQ; }, 0);
+      $('#kG').value = kalk.gesamt !== '' ? kalk.gesamt : preisFeld(Math.round(summe * 100) / 100);
+      $('#kG').placeholder = preisFeld(Math.round(summe * 100) / 100);
+    };
+    var zahlIn = function (id) { var x = parseFloat(String($(id).value || '').replace(/\s/g, '').replace(',', '.')); return isNaN(x) ? 0 : x; };
+    var runden = function (p) {
+      if (!(p > 0)) return 0;
+      if (kalk.rund === '9') { var c = Math.floor(p * 10) / 10 + 0.09; if (c < p - 1e-9) c += 0.1; return Math.round(c * 100) / 100; }
+      var st = Number(kalk.rund); return Math.round(Math.ceil(p / st - 1e-9) * st * 100) / 100;
+    };
+    var rechne = function () {
+      var gesamt = zahlIn('#kG'), nk = zahlIn('#kK'), sumWert = zeilen.reduce(function (s, z) { return s + z.menge * z.ekQ; }, 0), sumMenge = zeilen.reduce(function (s, z) { return s + z.menge; }, 0);
+      var w = zahlIn('#kW');
+      $('#kWL').textContent = { faktor: 'Faktor (z. B. 3 = EK × 3)', marge: 'Ziel-Marge in % vom VK', uvp: '% der UVP netto (z. B. 40)' }[kalk.methode];
+      var tot = { ein: 0, vk: 0, n: 0, unter: 0 };
+      zeilen.forEach(function (z) {
+        var anteil = sumWert > 0 ? z.menge * z.ekQ / sumWert : (sumMenge ? z.menge / sumMenge : 0);
+        var ware = gesamt ? gesamt * anteil : z.menge * z.ekQ;
+        var kost = nk * (kalk.vert === 'wert' && sumWert > 0 ? anteil : (sumMenge ? z.menge / sumMenge : 0));
+        z.einstand = z.menge ? (ware + kost) / z.menge : 0;
+        var roh = kalk.methode === 'faktor' ? z.einstand * w : kalk.methode === 'marge' ? (w < 100 ? z.einstand / (1 - w / 100) : 0) : (Number(z.a.uvp) || 0) / (1 + mwst) * w / 100;
+        z.vkVorschlag = runden(roh);
+        z.aendern = !kalk.nurLeer || !z.a.vk;
+        z.vkNeu = kalk.vkManuell[z.ean] !== undefined ? kalk.vkManuell[z.ean] : (z.aendern ? z.vkVorschlag : (Number(z.a.vk) || 0));
+        tot.ein += z.einstand * z.menge; tot.vk += z.vkNeu * z.menge; if (z.vkNeu && z.vkNeu < z.einstand) tot.unter++;
+      });
+      $('#kSum').innerHTML = '<div class="kpi"><small>Einstand gesamt</small><b>' + eur(tot.ein) + '</b><span>' + zeilen.length + ' Artikel · ' + zahl(sumMenge) + ' Stk</span></div>' +
+        '<div class="kpi"><small>Umsatz bei Ausverkauf</small><b>' + eur(tot.vk) + '</b><span>zu den neuen VK-Preisen</span></div>' +
+        '<div class="kpi"><small>Rohertrag</small><b>' + eur(tot.vk - tot.ein) + '</b><span>' + (tot.vk ? proz((tot.vk - tot.ein) / tot.vk) + ' Marge' : '–') + '</span></div>' +
+        '<div class="kpi"><small>Nebenkosten je Stück Ø</small><b>' + eurP(sumMenge ? nk / sumMenge : 0) + '</b><span>' + (tot.unter ? '<span class="zahl-leer">⚠️ ' + tot.unter + ' Preise unter Einstand</span>' : 'alle Preise über Einstand') + '</span></div>';
+      $('#kB').innerHTML = zeilen.length ? zeilen.map(function (z) {
+        var mg = z.vkNeu ? (z.vkNeu - z.einstand) / z.vkNeu : '';
+        return '<tr data-ean="' + esc(z.ean) + '"' + (z.aendern || kalk.vkManuell[z.ean] !== undefined ? '' : ' style="opacity:.55"') + '><td>' + bildTag(z.a.bild) + '</td><td>' + esc(z.a.name) + '<br><small class="grau mono">' + esc(z.ean) + '</small></td>' +
+          '<td class="z">' + zahl(z.menge) + '</td><td class="z">' + eurP(z.a.ek) + '</td><td class="z"><b>' + eurP(z.einstand) + '</b></td><td class="z">' + eur(z.a.uvp) + '</td><td class="z">' + eurP(z.a.vk) + '</td>' +
+          '<td class="z"><input class="inl" data-vk value="' + esc(preisFeld(z.vkNeu)) + '"' + (kalk.vkManuell[z.ean] !== undefined ? ' style="border-color:var(--o);background:var(--o2)"' : '') + '></td>' +
+          '<td class="z' + (mg !== '' && mg < 0 ? ' zahl-leer' : '') + '">' + proz(mg) + '</td></tr>';
+      }).join('') : '<tr><td colspan="9" class="leerstand">Keine Artikel für diese Auswahl.</td></tr>';
+      $$('#kB input[data-vk]').forEach(function (i) {
+        i.onchange = function () { var x = parseFloat(i.value.replace(',', '.')), ean = i.closest('tr').dataset.ean; if (isNaN(x)) delete kalk.vkManuell[ean]; else kalk.vkManuell[ean] = x; rechne(); };
+        i.onkeydown = function (ev) { if (ev.key === 'Enter') i.blur(); };
+      });
+    };
+    var merk = function () { kalk.vert = $('#kV').value; kalk.ekUeb = $('#kE').checked; kalk.methode = $('#kM').value; kalk.wert = $('#kW').value; kalk.rund = $('#kR').value; kalk.nurLeer = $('#kL').checked; kalk.kosten = $('#kK').value; rechne(); };
+    ['#kV', '#kE', '#kM', '#kR', '#kL'].forEach(function (id) { $(id).onchange = merk; });
+    ['#kW', '#kK'].forEach(function (id) { $(id).oninput = merk; });
+    $('#kG').oninput = function () { kalk.gesamt = this.value; rechne(); };
+    $('#kM').addEventListener('change', function () { var d = { faktor: '3', marge: '60', uvp: '40' }[this.value]; $('#kW').value = d; kalk.wert = d; rechne(); });
+    $('#kQ').onchange = function () { kalk.quelle = this.value; kalk.gesamt = ''; kalk.vkManuell = {}; ladeQuelle(); rechne(); };
+    ladeQuelle(); rechne();
+    $('#kOk').onclick = function () {
+      var btn = this, liste = zeilen.filter(function (z) { return (z.aendern || kalk.vkManuell[z.ean] !== undefined) && z.vkNeu > 0 || kalk.ekUeb; }).map(function (z) {
+        var x = { ean: z.ean }; if (kalk.ekUeb) x.ek = Math.round(z.einstand * 10000) / 10000;
+        if ((z.aendern || kalk.vkManuell[z.ean] !== undefined) && z.vkNeu > 0) x.vk = z.vkNeu; return x;
+      });
+      var nVk = liste.filter(function (x) { return 'vk' in x; }).length, nEk = liste.filter(function (x) { return 'ek' in x; }).length;
+      if (!nVk && !nEk) { toast('Nichts zu übernehmen.', true); return; }
+      frage('Preise übernehmen?', '<p>' + (nVk ? '<b>' + nVk + ' VK-Preise</b> ' : '') + (nVk && nEk ? 'und ' : '') + (nEk ? '<b>' + nEk + ' EK-Preise (Einstand)</b> ' : '') + 'werden im Artikelstamm gespeichert.</p><p class="grau">Bestehende Angebote übernehmen neue VK-Preise automatisch, sofern dort kein Sonderpreis steht.</p>', 'Übernehmen')
+        .then(function (ja) {
+          if (!ja) return;
+          mitKnopf(btn, api('b_artikel_preise', { zeilen: liste })).then(function (r) { toast(r.gespeichert + ' Artikel aktualisiert.'); kalk.vkManuell = {}; C.artikel = null; route(); }).catch(fehler);
+        });
+    };
+  }).catch(fehler);
+};
+
 /* ============================ Sortimentsliste ============================ */
 SEITEN.sortiment = function () {
   Promise.all([einst(), artikelListe(true)]).then(function (r) {
@@ -831,7 +966,7 @@ SEITEN.einstellungen = function () {
       e.felder.map(function (f) {
         var w = f.zeile === 18 ? komma(Math.round(Number(f.wert) * 1000) / 10) : f.wert;
         var lab = f.zeile === 18 ? 'MwSt-Satz (%)' : f.name;
-        return '<div class="feld' + ([20, 21, 22].indexOf(f.zeile) >= 0 ? ' voll' : '') + '"><label>' + esc(lab) + '</label><input data-z="' + f.zeile + '" value="' + esc(w) + '"></div>';
+        return '<div class="feld' + ([20, 21, 22, 23].indexOf(f.zeile) >= 0 ? ' voll' : '') + '"><label>' + esc(lab) + '</label><input data-z="' + f.zeile + '" value="' + esc(w) + '"' + (f.zeile === 23 ? ' placeholder="z. B. 500:5; 1000:10 – ab 500 Stk 5 %, ab 1000 Stk 10 % Rabatt"' : '') + '></div>';
       }).join('') + '</div></div>' +
       '<div><div class="karte"><h2>Kategorien</h2><label>Eine Kategorie pro Zeile</label><textarea id="esKat" style="min-height:240px">' + esc(e.kategorien.join('\n')) + '</textarea></div>' +
       '<div class="karte"><h2>Hinweise</h2><div class="feld"><label>„Fast ausverkauft“ ab verfügbar ≤ (Stück)</label><input id="esSchw" value="' + esc(e.schwelle) + '"></div></div>' +

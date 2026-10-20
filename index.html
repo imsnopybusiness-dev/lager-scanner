@@ -2,6 +2,7 @@
 <html lang="de">
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -182,6 +183,18 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
 <script>
+var APP_VERSION = '2026-10-20a';
+/* Selbst-Aktualisierung: holt die Seite ohne Cache und lädt neu, wenn es eine neuere Version gibt */
+(function () {
+  function pruefen() {
+    fetch(location.pathname + '?nc=' + Date.now(), {cache: 'no-store'}).then(function (r) { return r.text(); }).then(function (t) {
+      var m = t.match(/APP_VERSION = '([^']+)'/);
+      if (m && m[1] !== APP_VERSION && location.search.indexOf('v=' + m[1]) < 0) location.replace(location.pathname + '?v=' + m[1] + location.hash);
+    }).catch(function () {});
+  }
+  pruefen();
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) pruefen(); });
+})();
   var STANDARD_API = 'AKfycbwLqf5z3A39SYeigqJvWV0uRUWMLRiRI2q2HonVWnG2MhDxsfl7sTyXTtdeJoea4uSl';
   var API = '', SITZUNG = '', NAME = '', akt = null;
   var $ = function (id) { return document.getElementById(id); };
@@ -290,7 +303,8 @@
       '<div class="kpis"><div class="kpi ' + klasse + '"><b>' + zahl(v) + '</b><small>verfügbar</small></div>' +
       '<div class="kpi"><b>' + zahl(a.bestand) + '</b><small>Bestand</small></div>' +
       '<div class="kpi"><b>' + zahl(a.reserviert) + '</b><small>reserviert</small></div></div>' +
-      '<div class="preise"><div><small>VK netto</small><b>' + eur(a.vk) + '</b></div><div><small>UVP</small><b>' + eur(a.uvp) + '</b></div><div class="ek"><small>EK</small><b>' + eur(a.ek) + '</b></div></div>';
+      '<div class="preise"><div><small>VK netto</small><b>' + eur(a.vk) + '</b></div><div><small>UVP</small><b>' + eur(a.uvp) + '</b></div><div class="ek"><small>EK</small><b>' + eur(a.ek) + '</b></div></div>' +
+      (a.staffel && a.staffel.length ? '<div class="vehint" style="margin-top:8px;text-align:center">Staffel: ' + a.staffel.map(function (x) { return 'ab ' + zahl(x.ab) + ' Stk −' + String(Math.round(x.rabatt * 1000) / 10).replace('.', ',') + ' %' + (a.vk ? ' (' + eur(a.vk * (1 - x.rabatt)) + ')' : ''); }).join(' · ') + '</div>' : '');
     $('hinzu').classList.remove('hidden');
     $('menge').value = a.ve || 1;
     $('vehint').textContent = a.ve ? 'VE: ' + a.ve + ' Stück pro Karton' : 'Keine VE hinterlegt';
@@ -304,7 +318,10 @@
   function pruefePreis() {
     if (!akt) return;
     var p = preisWert(), m = Number($('menge').value) || 0, vk = Number(akt.vk) || 0, t = '';
-    if (p === '' || isNaN(p)) t = vk ? 'Leer = Listenpreis ' + eur(vk) : 'Kein VK im Artikel – bitte Preis eintragen.';
+    var stR = 0; (akt.staffel || []).forEach(function (x) { if (m >= x.ab) stR = x.rabatt; });
+    var gleichListe = p !== '' && !isNaN(p) && Math.abs(p - vk) < 0.0001;
+    if ((p === '' || isNaN(p) || gleichListe) && stR && vk) t = 'Staffel −' + String(Math.round(stR * 1000) / 10).replace('.', ',') + ' % → ' + eur(vk * (1 - stR)) + ' je Stück · Summe ' + eur(vk * (1 - stR) * m);
+    else if (p === '' || isNaN(p)) t = vk ? 'Leer = Listenpreis ' + eur(vk) : 'Kein VK im Artikel – bitte Preis eintragen.';
     else {
       t = 'Summe ' + eur(p * m);
       if (vk && Math.abs(p - vk) > 0.0001) t += ' · Sonderpreis (Liste ' + eur(vk) + ', ' + (p < vk ? '−' : '+') + Math.abs(Math.round((p - vk) / vk * 1000) / 10).toString().replace('.', ',') + ' %)';
