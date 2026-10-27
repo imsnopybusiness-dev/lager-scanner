@@ -183,7 +183,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
 <script>
-var APP_VERSION = '2026-10-27a';
+var APP_VERSION = '2026-10-27b';
 /* Selbst-Aktualisierung: holt die Seite ohne Cache und lädt neu, wenn es eine neuere Version gibt */
 (function () {
   function pruefen() {
@@ -307,12 +307,19 @@ var APP_VERSION = '2026-10-27a';
       '<div id="bstForm" class="hidden"><label>Gezählter Bestand (Stück)</label><div class="row"><input id="bstNeu" type="number" inputmode="numeric" min="0" step="1" placeholder="' + zahl(a.bestand) + '"><button id="bstOk" style="flex-shrink:0">Speichern</button></div>' +
       '<div class="vehint" id="bstHint">Bisher ' + zahl(a.bestand) + ' Stück im Bestand.</div><button class="sek" id="bstAbbr" style="width:100%;margin-top:8px">Abbrechen</button></div>' +
       '<div class="preise"><div><small>VK netto</small><b>' + eur(a.vk) + '</b></div><div><small>UVP</small><b>' + eur(a.uvp) + '</b></div><div class="ek"><small>EK</small><b>' + eur(a.ek) + '</b></div></div>' +
+      '<button class="sek" id="uvpBtn" style="width:100%;margin-top:10px">✏️ UVP ändern</button>' +
+      '<div id="uvpForm" class="hidden"><label>UVP Hersteller (brutto, €)</label><div class="row"><input id="uvpNeu" type="text" inputmode="decimal" autocomplete="off" placeholder="z. B. 2,95"><button id="uvpOk" style="flex-shrink:0">Speichern</button></div>' +
+      '<div class="vehint" id="uvpHint">Bisher: ' + (a.uvp === '' || a.uvp == null ? 'keine UVP' : eur(a.uvp)) + ' · leer lassen = UVP löschen</div><button class="sek" id="uvpAbbr" style="width:100%;margin-top:8px">Abbrechen</button></div>' +
       (a.staffel && a.staffel.length ? '<div class="vehint" style="margin-top:8px;text-align:center">Staffel: ' + a.staffel.map(function (x) { return 'ab ' + zahl(x.ab) + ' Stk −' + String(Math.round(x.rabatt * 1000) / 10).replace('.', ',') + ' %' + (a.vk ? ' (' + eur(a.vk * (1 - x.rabatt)) + ')' : ''); }).join(' · ') + '</div>' : '');
     $('bstBtn').onclick = function () { $('bstForm').classList.remove('hidden'); this.classList.add('hidden'); $('bstNeu').focus(); };
     $('bstAbbr').onclick = function () { $('bstForm').classList.add('hidden'); $('bstBtn').classList.remove('hidden'); $('bstNeu').value = ''; };
     $('bstNeu').oninput = bestandHinweis;
     $('bstNeu').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); bestandSpeichern(); } });
     $('bstOk').onclick = bestandSpeichern;
+    $('uvpBtn').onclick = function () { $('uvpForm').classList.remove('hidden'); this.classList.add('hidden'); $('uvpNeu').value = komma(akt.uvp); $('uvpNeu').focus(); $('uvpNeu').select(); };
+    $('uvpAbbr').onclick = function () { $('uvpForm').classList.add('hidden'); $('uvpBtn').classList.remove('hidden'); };
+    $('uvpNeu').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); uvpSpeichern(); } });
+    $('uvpOk').onclick = uvpSpeichern;
     $('hinzu').classList.remove('hidden');
     $('menge').value = a.ve || 1;
     $('vehint').textContent = a.ve ? 'VE: ' + a.ve + ' Stück pro Karton' : 'Keine VE hinterlegt';
@@ -341,6 +348,17 @@ var APP_VERSION = '2026-10-27a';
       status('bereit'); akt = r.artikel; zeigeArtikel(akt);
       meldung('Bestand geändert: ' + zahl(r.alt) + ' → ' + zahl(r.neu) + ' Stück (' + (r.diff > 0 ? '+' : '−') + zahl(Math.abs(r.diff)) + ')', true);
     }).catch(function (e) { $('bstOk').disabled = false; fehler(e); });
+  }
+
+  function uvpSpeichern() {
+    if (!akt) return;
+    var x = $('uvpNeu').value.replace(/\s|€/g, '').replace(',', '.');
+    if (x !== '' && (isNaN(Number(x)) || Number(x) < 0)) { meldung('Bitte eine gültige UVP eingeben (z. B. 2,95).', false); return; }
+    $('uvpOk').disabled = true; laed();
+    api({ api: 'uvp', ean: akt.ean, uvp: x }).then(function (r) {
+      status('bereit'); akt = r.artikel; zeigeArtikel(akt);
+      meldung('UVP gespeichert: ' + (r.neu === '' ? 'keine UVP' : eur(r.neu)), true);
+    }).catch(function (e) { $('uvpOk').disabled = false; fehler(e); });
   }
 
   function preisWert() { var x = $('preis').value.replace(/\s/g, '').replace(',', '.'); return x === '' ? '' : Number(x); }
