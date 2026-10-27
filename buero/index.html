@@ -167,6 +167,7 @@
       <a href="#lieferanten" data-s="lieferanten"><span class="ico">🏭</span>Lieferanten</a>
       <div class="sep"></div>
       <a href="#sortiment" data-s="sortiment"><span class="ico">📋</span>Sortimentsliste</a>
+      <a href="#liste" data-s="liste"><span class="ico">🗒️</span>Neutrale Liste</a>
       <a href="#einstellungen" data-s="einstellungen"><span class="ico">⚙️</span>Einstellungen</a>
     </nav>
     <div class="fuss"><div id="wer" style="margin-bottom:6px"></div>Daten liegen in eurem Google Sheet.<br><a href="../" id="scannerLink">Zum Scanner</a></div>
@@ -177,7 +178,7 @@
 <div id="modalRoot"></div>
 
 <script>
-var APP_VERSION = '2026-10-27a';
+var APP_VERSION = '2026-10-27c';
 /* Selbst-Aktualisierung: holt die Seite ohne Cache und lädt neu, wenn es eine neuere Version gibt */
 (function () {
   function pruefen() {
@@ -956,6 +957,67 @@ SEITEN.sortiment = function () {
     };
     $('#soK').onchange = $('#soV').onchange = $('#soP').onchange = zeichne; zeichne();
     $('#soPdf').onclick = function () { mitKnopf(this, api('b_pdf', { art: 'sortiment', kategorie: $('#soK').value, nurVerfuegbar: $('#soV').checked, preise: $('#soP').checked })).then(pdfZeigen).catch(fehler); };
+  }).catch(fehler);
+};
+
+/* ============================ Neutrale Artikelliste (ohne Briefkopf) ============================ */
+var nl = { titel: '', unter: 'Preise netto zzgl. MwSt. · solange Vorrat reicht', charge: '', kat: 'Alle', verf: true, sp: { bild: true, ean: true, ve: true, menge: true, uvp: false, preis: true }, aus: {}, preise: {} };
+SEITEN.liste = function () {
+  Promise.all([api('b_wareneingang'), artikelListe(true), einst()]).then(function (r) {
+    var we = r[0], e = r[2], gruppen = [], gi = {};
+    we.forEach(function (w) {
+      if (/^Bestandskorrektur/.test(w.notiz)) return;
+      var k = w.datum + '|' + w.lieferant + '|' + w.notiz;
+      if (!(k in gi)) { gi[k] = gruppen.length; gruppen.push({ v: k, t: datum(w.datum) + ' · ' + (w.lieferant || 'ohne Lieferant') + (w.notiz ? ' · ' + w.notiz : ''), eans: {} }); }
+      gruppen[gi[k]].eans[w.ean] = 1;
+    });
+    var spN = { bild: 'Bild', ean: 'EAN', ve: 'VE', menge: 'Menge (verfügbar)', uvp: 'UVP', preis: 'Preis' };
+    $('#main').innerHTML = kopf('Neutrale Artikelliste', 'Reine Artikelliste ohne Briefkopf und Firmendaten – Titel frei wählbar. Auswahl und Häkchen erscheinen nicht im Druck.', '<button class="btn" id="liPdf">📄 PDF erstellen</button>') +
+      '<div class="raster r2"><div class="karte"><h2>Was oben auf der Liste steht</h2>' +
+      '<div class="feld"><label>Titel</label><input id="liT" placeholder="z. B. Weihnachtskarten – Restposten" value="' + esc(nl.titel) + '"></div>' +
+      '<div class="feld"><label>Zeile darunter (optional)</label><input id="liU" placeholder="leer lassen = keine Zeile" value="' + esc(nl.unter) + '"></div>' +
+      '<label style="margin-top:6px">Spalten</label><div class="filter" style="margin:4px 0 0">' + Object.keys(spN).map(function (k) { return '<label class="chk"><input type="checkbox" data-sp="' + k + '"' + (nl.sp[k] ? ' checked' : '') + '> ' + spN[k] + '</label>'; }).join('') + '</div></div>' +
+      '<div class="karte"><h2>Welche Artikel</h2>' +
+      '<div class="feld"><label>Charge / Wareneingang</label><select id="liC">' + opt([{ v: '', t: 'Alle Artikel' }].concat(gruppen), nl.charge) + '</select></div>' +
+      '<div class="feld"><label>Kategorie</label><select id="liK">' + opt(['Alle'].concat(e.kategorien), nl.kat) + '</select></div>' +
+      '<label class="chk"><input type="checkbox" id="liV"' + (nl.verf ? ' checked' : '') + '> nur verfügbare Artikel</label></div></div>' +
+      '<div class="karte"><div class="filter"><button class="btn sek klein" id="liAlle">Alle anhaken</button><button class="btn sek klein" id="liKeine">Keine</button><span class="grau" id="liAnz"></span></div>' +
+      '<div class="tab-wrap"><table><thead><tr><th style="width:34px"></th><th></th><th>EAN</th><th>Bezeichnung</th><th class="z">VE</th><th class="z">Verfügbar</th><th class="z">UVP</th><th class="z">Preis auf der Liste</th></tr></thead><tbody id="liB"></tbody></table></div></div>';
+    var sichtbar = [];
+    var zaehle = function () {
+      var n = sichtbar.filter(function (a) { return !nl.aus[a.ean]; }).length;
+      $('#liAnz').textContent = n + ' von ' + sichtbar.length + ' Artikeln kommen auf die Liste';
+    };
+    var zeichne = function () {
+      var g = nl.charge ? gruppen[gi[nl.charge]] : null;
+      sichtbar = C.artikel.filter(function (a) { return a.aktiv !== 'Nein' && (!g || g.eans[a.ean]) && (nl.kat === 'Alle' || a.kategorie === nl.kat) && (!nl.verf || Number(a.verfuegbar) > 0); });
+      $('#liB').innerHTML = sichtbar.map(function (a) {
+        var p = nl.preise[a.ean] !== undefined ? nl.preise[a.ean] : preisFeld(a.vk);
+        return '<tr data-ean="' + esc(a.ean) + '"' + (nl.aus[a.ean] ? ' style="opacity:.45"' : '') + '><td><input type="checkbox" data-w' + (nl.aus[a.ean] ? '' : ' checked') + '></td><td>' + bildTag(a.bild) + '</td><td class="mono">' + esc(a.ean) + '</td><td>' + esc(a.name) + '</td>' +
+          '<td class="z">' + zahl(a.ve) + '</td><td class="z">' + zahl(a.verfuegbar) + '</td><td class="z">' + eur(a.uvp) + '</td>' +
+          '<td class="z"><input class="inl" data-p value="' + esc(p) + '" placeholder="–"></td></tr>';
+      }).join('') || '<tr><td colspan="8" class="leerstand">Keine Artikel für diese Auswahl.</td></tr>';
+      $$('#liB input[data-w]').forEach(function (c) { c.onchange = function () { var tr = c.closest('tr'); if (c.checked) delete nl.aus[tr.dataset.ean]; else nl.aus[tr.dataset.ean] = 1; tr.style.opacity = c.checked ? '' : '.45'; zaehle(); }; });
+      $$('#liB input[data-p]').forEach(function (i) { i.oninput = function () { nl.preise[i.closest('tr').dataset.ean] = i.value; }; });
+      zaehle();
+    };
+    $('#liT').oninput = function () { nl.titel = this.value; };
+    $('#liU').oninput = function () { nl.unter = this.value; };
+    $$('input[data-sp]').forEach(function (c) { c.onchange = function () { nl.sp[c.dataset.sp] = c.checked; }; });
+    $('#liC').onchange = function () { nl.charge = this.value; nl.aus = {}; zeichne(); };
+    $('#liK').onchange = function () { nl.kat = this.value; nl.aus = {}; zeichne(); };
+    $('#liV').onchange = function () { nl.verf = this.checked; nl.aus = {}; zeichne(); };
+    $('#liAlle').onclick = function () { nl.aus = {}; zeichne(); };
+    $('#liKeine').onclick = function () { sichtbar.forEach(function (a) { nl.aus[a.ean] = 1; }); zeichne(); };
+    zeichne();
+    $('#liPdf').onclick = function () {
+      var eans = sichtbar.filter(function (a) { return !nl.aus[a.ean]; }).map(function (a) { return a.ean; });
+      if (!nl.titel.trim()) { fehler(new Error('Bitte oben einen Titel für die Liste eingeben.')); $('#liT').focus(); return; }
+      if (!eans.length) { fehler(new Error('Bitte mindestens einen Artikel anhaken.')); return; }
+      var preise = {}; eans.forEach(function (x) { if (nl.preise[x] !== undefined) preise[x] = nl.preise[x]; });
+      var sp = {}; Object.keys(nl.sp).forEach(function (k) { sp[k] = nl.sp[k] ? 1 : 0; });
+      mitKnopf(this, api('b_pdf', { art: 'liste', eans: eans, titel: nl.titel, untertitel: nl.unter, spalten: sp, preise: preise })).then(pdfZeigen).catch(fehler);
+    };
   }).catch(fehler);
 };
 
