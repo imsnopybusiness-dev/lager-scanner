@@ -177,7 +177,7 @@
 <div id="modalRoot"></div>
 
 <script>
-var APP_VERSION = '2026-10-20a';
+var APP_VERSION = '2026-10-27a';
 /* Selbst-Aktualisierung: holt die Seite ohne Cache und lädt neu, wenn es eine neuere Version gibt */
 (function () {
   function pruefen() {
@@ -840,6 +840,7 @@ SEITEN.kalkulation = function () {
   Promise.all([api('b_wareneingang'), artikelListe(true), einst()]).then(function (r) {
     var we = r[0], e = r[2], gruppen = [], gi = {};
     we.forEach(function (w) {
+      if (/^Bestandskorrektur/.test(w.notiz)) return;
       var k = w.datum + '|' + w.lieferant + '|' + w.notiz;
       if (!(k in gi)) { gi[k] = gruppen.length; gruppen.push({ key: k, titel: datum(w.datum) + ' · ' + (w.lieferant || 'ohne Lieferant') + (w.notiz ? ' · ' + w.notiz : ''), zeilen: [], summe: 0 }); }
       var g = gruppen[gi[k]]; g.zeilen.push(w); g.summe += w.summe;

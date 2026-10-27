@@ -183,7 +183,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
 <script>
-var APP_VERSION = '2026-10-20a';
+var APP_VERSION = '2026-10-27a';
 /* Selbst-Aktualisierung: holt die Seite ohne Cache und lädt neu, wenn es eine neuere Version gibt */
 (function () {
   function pruefen() {
@@ -303,8 +303,16 @@ var APP_VERSION = '2026-10-20a';
       '<div class="kpis"><div class="kpi ' + klasse + '"><b>' + zahl(v) + '</b><small>verfügbar</small></div>' +
       '<div class="kpi"><b>' + zahl(a.bestand) + '</b><small>Bestand</small></div>' +
       '<div class="kpi"><b>' + zahl(a.reserviert) + '</b><small>reserviert</small></div></div>' +
+      '<button class="sek" id="bstBtn" style="width:100%;margin-top:10px">✏️ Bestand ändern</button>' +
+      '<div id="bstForm" class="hidden"><label>Gezählter Bestand (Stück)</label><div class="row"><input id="bstNeu" type="number" inputmode="numeric" min="0" step="1" placeholder="' + zahl(a.bestand) + '"><button id="bstOk" style="flex-shrink:0">Speichern</button></div>' +
+      '<div class="vehint" id="bstHint">Bisher ' + zahl(a.bestand) + ' Stück im Bestand.</div><button class="sek" id="bstAbbr" style="width:100%;margin-top:8px">Abbrechen</button></div>' +
       '<div class="preise"><div><small>VK netto</small><b>' + eur(a.vk) + '</b></div><div><small>UVP</small><b>' + eur(a.uvp) + '</b></div><div class="ek"><small>EK</small><b>' + eur(a.ek) + '</b></div></div>' +
       (a.staffel && a.staffel.length ? '<div class="vehint" style="margin-top:8px;text-align:center">Staffel: ' + a.staffel.map(function (x) { return 'ab ' + zahl(x.ab) + ' Stk −' + String(Math.round(x.rabatt * 1000) / 10).replace('.', ',') + ' %' + (a.vk ? ' (' + eur(a.vk * (1 - x.rabatt)) + ')' : ''); }).join(' · ') + '</div>' : '');
+    $('bstBtn').onclick = function () { $('bstForm').classList.remove('hidden'); this.classList.add('hidden'); $('bstNeu').focus(); };
+    $('bstAbbr').onclick = function () { $('bstForm').classList.add('hidden'); $('bstBtn').classList.remove('hidden'); $('bstNeu').value = ''; };
+    $('bstNeu').oninput = bestandHinweis;
+    $('bstNeu').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); bestandSpeichern(); } });
+    $('bstOk').onclick = bestandSpeichern;
     $('hinzu').classList.remove('hidden');
     $('menge').value = a.ve || 1;
     $('vehint').textContent = a.ve ? 'VE: ' + a.ve + ' Stück pro Karton' : 'Keine VE hinterlegt';
@@ -312,6 +320,27 @@ var APP_VERSION = '2026-10-20a';
     $('preis').placeholder = a.vk ? komma(a.vk) : 'kein VK hinterlegt';
     pruefePreis();
     pruefeMenge();
+  }
+
+  function bestandHinweis() {
+    var alt = Number(akt.bestand) || 0, x = $('bstNeu').value, t = 'Bisher ' + zahl(alt) + ' Stück im Bestand.';
+    if (x !== '') {
+      var n = Number(x), d = n - alt;
+      t = zahl(alt) + ' → ' + zahl(n) + ' Stück (' + (d > 0 ? '+' : d < 0 ? '−' : '±') + zahl(Math.abs(d)) + ')';
+      if (n < (Number(akt.reserviert) || 0)) t += ' · ⚠️ weniger als reserviert (' + zahl(akt.reserviert) + ')';
+    }
+    $('bstHint').textContent = t;
+  }
+  function bestandSpeichern() {
+    if (!akt) return;
+    var x = $('bstNeu').value.trim(), n = Number(x);
+    if (x === '' || !(n >= 0) || n % 1 !== 0) { meldung('Bitte den gezählten Bestand als ganze Zahl eingeben (0 oder mehr).', false); return; }
+    if (n === (Number(akt.bestand) || 0)) { $('bstAbbr').onclick(); meldung('Bestand ist unverändert.', true); return; }
+    $('bstOk').disabled = true; laed();
+    api({ api: 'bestand', ean: akt.ean, neu: n }).then(function (r) {
+      status('bereit'); akt = r.artikel; zeigeArtikel(akt);
+      meldung('Bestand geändert: ' + zahl(r.alt) + ' → ' + zahl(r.neu) + ' Stück (' + (r.diff > 0 ? '+' : '−') + zahl(Math.abs(r.diff)) + ')', true);
+    }).catch(function (e) { $('bstOk').disabled = false; fehler(e); });
   }
 
   function preisWert() { var x = $('preis').value.replace(/\s/g, '').replace(',', '.'); return x === '' ? '' : Number(x); }
