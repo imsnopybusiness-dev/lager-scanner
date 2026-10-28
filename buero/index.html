@@ -178,7 +178,7 @@
 <div id="modalRoot"></div>
 
 <script>
-var APP_VERSION = '2026-10-28a';
+var APP_VERSION = '2026-10-28b';
 /* Selbst-Aktualisierung: holt die Seite ohne Cache und lädt neu, wenn es eine neuere Version gibt */
 (function () {
   function pruefen() {
@@ -206,12 +206,20 @@ var datum = function (iso) { if (!iso) return ''; var m = String(iso).match(/^(\
 var komma = function (x) { return x === '' || x == null ? '' : String(x).replace('.', ','); };
 function staffelParse(s) {
   s = String(s == null ? '' : s).trim(); if (!s || /^(keine|nein|aus|-)$/i.test(s)) return [];
-  var out = []; s.replace(/(\d[\d.]*)\s*(?:stk\.?|stück)?\s*[:=>]\s*(\d+(?:[.,]\d+)?)\s*%?/gi, function (m, ab, r) { out.push({ ab: Number(ab.replace(/\./g, '')), rabatt: Number(r.replace(',', '.')) / 100 }); });
-  return out.filter(function (x) { return x.ab > 0 && x.rabatt > 0 && x.rabatt < 1; }).sort(function (a, b) { return a.ab - b.ab; });
+  var out = []; s.replace(/(\d[\d.]*)\s*(?:stk\.?|stück)?\s*[:=>]\s*(\d+(?:[.,]\d+)?)\s*(%|€|eur(?:o)?)?/gi, function (m, ab, w, e) {
+    var x = { ab: Number(ab.replace(/\./g, '')) }, n = Number(w.replace(',', '.')), u = String(e || '').toLowerCase();
+    if (u === '%' || (!u && !/[.,]/.test(w))) x.rabatt = n / 100; else x.preis = n; out.push(x);
+  });
+  return out.filter(function (x) { return x.ab > 0 && (x.preis > 0 || (x.rabatt > 0 && x.rabatt < 1)); }).sort(function (a, b) { return a.ab - b.ab; });
 }
 function staffelStd() { var f = C.einst && C.einst.felder.filter(function (x) { return x.zeile === 23; })[0]; return f ? String(f.wert || '') : ''; }
 function staffelWirksam(a) { var eig = String((a && a.staffel) || '').trim(); return staffelParse(eig ? eig : staffelStd()); }
-function staffelText(st, vk) { return st.map(function (x) { return 'ab ' + zahl(x.ab) + ' Stk −' + komma(Math.round(x.rabatt * 1000) / 10) + ' %' + (vk ? ' (' + eurP(vk * (1 - x.rabatt)) + ')' : ''); }).join(' · '); }
+function staffelText(st, vk) {
+  return st.map(function (x) {
+    if (x.preis) return 'ab ' + zahl(x.ab) + ' Stk ' + eurP(x.preis) + (vk ? ' (' + (x.preis <= vk ? '−' : '+') + komma(Math.abs(Math.round((1 - x.preis / vk) * 1000) / 10)) + ' %)' : '');
+    return 'ab ' + zahl(x.ab) + ' Stk −' + komma(Math.round(x.rabatt * 1000) / 10) + ' %' + (vk ? ' (' + eurP(vk * (1 - x.rabatt)) + ')' : '');
+  }).join(' · ');
+}
 var preisFeld = function (x) { return x === '' || x == null || isNaN(Number(x)) ? '' : Number(x).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 3, useGrouping: false }); };
 var heuteIso = function () { var d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
 
@@ -512,7 +520,7 @@ function artikelForm(ean, vorgabe) {
       '<div class="feld"><label>Lieferant</label><select id="fLieferant">' + opt(e.lieferanten.map(function (l) { return { v: l.nr, t: l.firma + ' (' + l.nr + ')' }; }), x.lieferant, '– keiner –') + '</select></div>' +
       '<div class="feld"><label>Lief.-Art.-Nr.</label><input id="fLiefArtNr" value="' + esc(x.liefArtNr || '') + '"></div>' +
       '<div class="feld"><label>Lagerplatz</label><input id="fLagerplatz" value="' + esc(x.lagerplatz || '') + '"></div>' +
-      '<div class="feld voll"><label>Staffel (ab Menge : Rabatt %)</label><input id="fStaffel" value="' + esc(x.staffel || '') + '" placeholder="' + esc(staffelStd() ? 'Standard: ' + staffelStd() : 'z. B. 500:5; 1000:10') + '">' +
+      '<div class="feld voll"><label>Staffel (ab Menge : Stückpreis € – oder Rabatt %)</label><input id="fStaffel" value="' + esc(x.staffel || '') + '" placeholder="' + esc('z. B. 500:0,35; 1000:0,32' + (staffelStd() ? '  ·  leer = Standard: ' + staffelStd() : '')) + '">' +
       '<div class="grau" id="fStaffelInfo" style="font-size:12px;margin-top:4px"></div></div>' +
       '<div class="feld"><label>VE (Stk/Karton)</label><input id="fVe" value="' + esc(komma(x.ve)) + '" inputmode="numeric"></div>' +
       '<div class="feld"><label>Kartons/Palette</label><input id="fKartonsPalette" value="' + esc(komma(x.kartonsPalette)) + '" inputmode="numeric"></div>' +
@@ -528,7 +536,7 @@ function artikelForm(ean, vorgabe) {
     var stInfo = function () {
       var t = $('#fStaffel').value.trim(), vk = parseFloat(($('#fVk').value || '').replace(',', '.')), st = staffelParse(t ? t : staffelStd());
       $('#fStaffelInfo').textContent = /^(keine|nein|aus|-)$/i.test(t) ? 'Keine Staffel für diesen Artikel.' :
-        (st.length ? (t ? '' : 'Standard-Staffel: ') + staffelText(st, vk > 0 ? vk : 0) : (t ? '⚠️ Format: 500:5; 1000:10' : 'Keine Staffel (Standard in den Einstellungen festlegen). „keine“ = Staffel aus.'));
+        (st.length ? (t ? '' : 'Standard-Staffel: ') + staffelText(st, vk > 0 ? vk : 0) : (t ? '⚠️ Format: 500:0,35; 1000:0,32 (Preis) oder 500:5%; 1000:10% (Rabatt)' : 'Keine Staffel (Standard in den Einstellungen festlegen). „keine“ = Staffel aus.'));
     };
     $('#fEk').oninput = marge; $('#fVk').oninput = function () { marge(); stInfo(); }; $('#fStaffel').oninput = stInfo; marge(); stInfo();
     var setzeBild = function (file) { bildVerkleinern(file).then(function (d) { bild = d; $('#bfV').innerHTML = '<img src="' + d + '" style="width:100%;height:100%;object-fit:contain;border-radius:10px">'; }).catch(fehler); };
@@ -622,8 +630,8 @@ function zeichneBeleg(b, e) {
         '<td class="z">' + (bearbeitbar ? '<input class="inl" data-f="menge" style="width:76px" value="' + p.menge + '" inputmode="numeric">' : zahl(p.menge)) + '</td>' +
         '<td class="z">' + (bearbeitbar ? '<input class="inl" style="width:58px" data-f="rabatt" value="' + (p.rabatt ? komma(Math.round(p.rabatt * 1000) / 10) : '') + '" placeholder="0">' : (p.rabatt ? komma(Math.round(p.rabatt * 1000) / 10) + ' %' : '')) +
           (p.rabatt && p.staffelRabatt && Math.abs(p.rabatt - p.staffelRabatt) < 1e-9 ? '<br><small class="grau">Staffel</small>' : '') + '</td>' +
-        '<td class="z">' + (bearbeitbar ? '<input class="inl" style="width:78px' + (p.preisManuell !== '' ? ';border-color:var(--o);background:var(--o2)' : '') + '" data-f="preis" value="' + esc(preisFeld(p.preis)) + '" title="Eigener Preis – leer lassen = Listenpreis">' +
-          (p.preisManuell !== '' ? '<br><small class="grau">Liste ' + eurP(p.vk) + '</small>' : '') : eurP(p.preis)) + '</td><td class="z"><b>' + eur(p.gesamt) + '</b></td>' +
+        '<td class="z">' + (bearbeitbar ? '<input class="inl" style="width:78px' + (p.preisManuell !== '' && !(p.staffelPreis !== '' && p.staffelPreis != null && Math.abs(p.preisManuell - p.staffelPreis) < 1e-9) ? ';border-color:var(--o);background:var(--o2)' : '') + '" data-f="preis" value="' + esc(preisFeld(p.preis)) + '" title="Eigener Preis – leer lassen = Listenpreis">' +
+          (p.preisManuell !== '' ? '<br><small class="grau">' + (p.staffelPreis !== '' && p.staffelPreis != null && Math.abs(p.preisManuell - p.staffelPreis) < 1e-9 ? 'Staffelpreis' : 'Liste ' + eurP(p.vk)) + '</small>' : '') : eurP(p.preis)) + '</td><td class="z"><b>' + eur(p.gesamt) + '</b></td>' +
         '<td>' + (bearbeitbar ? '<button class="icon-btn weg" title="Position entfernen">✕</button>' : '') + '</td></tr>';
     }).join('') : '<tr><td colspan="9" class="leerstand">Noch keine Positionen – unten Artikel suchen und hinzufügen.</td></tr>') +
     '</tbody></table></div>' +

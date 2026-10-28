@@ -183,7 +183,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
 <script>
-var APP_VERSION = '2026-10-27b';
+var APP_VERSION = '2026-10-28a';
 /* Selbst-Aktualisierung: holt die Seite ohne Cache und lädt neu, wenn es eine neuere Version gibt */
 (function () {
   function pruefen() {
@@ -310,7 +310,7 @@ var APP_VERSION = '2026-10-27b';
       '<button class="sek" id="uvpBtn" style="width:100%;margin-top:10px">✏️ UVP ändern</button>' +
       '<div id="uvpForm" class="hidden"><label>UVP Hersteller (brutto, €)</label><div class="row"><input id="uvpNeu" type="text" inputmode="decimal" autocomplete="off" placeholder="z. B. 2,95"><button id="uvpOk" style="flex-shrink:0">Speichern</button></div>' +
       '<div class="vehint" id="uvpHint">Bisher: ' + (a.uvp === '' || a.uvp == null ? 'keine UVP' : eur(a.uvp)) + ' · leer lassen = UVP löschen</div><button class="sek" id="uvpAbbr" style="width:100%;margin-top:8px">Abbrechen</button></div>' +
-      (a.staffel && a.staffel.length ? '<div class="vehint" style="margin-top:8px;text-align:center">Staffel: ' + a.staffel.map(function (x) { return 'ab ' + zahl(x.ab) + ' Stk −' + String(Math.round(x.rabatt * 1000) / 10).replace('.', ',') + ' %' + (a.vk ? ' (' + eur(a.vk * (1 - x.rabatt)) + ')' : ''); }).join(' · ') + '</div>' : '');
+      (a.staffel && a.staffel.length ? '<div class="vehint" style="margin-top:8px;text-align:center">Staffel: ' + a.staffel.map(function (x) { return x.preis ? 'ab ' + zahl(x.ab) + ' Stk ' + eur(x.preis) : 'ab ' + zahl(x.ab) + ' Stk −' + String(Math.round(x.rabatt * 1000) / 10).replace('.', ',') + ' %' + (a.vk ? ' (' + eur(a.vk * (1 - x.rabatt)) + ')' : ''); }).join(' · ') + '</div>' : '');
     $('bstBtn').onclick = function () { $('bstForm').classList.remove('hidden'); this.classList.add('hidden'); $('bstNeu').focus(); };
     $('bstAbbr').onclick = function () { $('bstForm').classList.add('hidden'); $('bstBtn').classList.remove('hidden'); $('bstNeu').value = ''; };
     $('bstNeu').oninput = bestandHinweis;
@@ -365,9 +365,10 @@ var APP_VERSION = '2026-10-27b';
   function pruefePreis() {
     if (!akt) return;
     var p = preisWert(), m = Number($('menge').value) || 0, vk = Number(akt.vk) || 0, t = '';
-    var stR = 0; (akt.staffel || []).forEach(function (x) { if (m >= x.ab) stR = x.rabatt; });
+    var stR = 0, stP = 0; (akt.staffel || []).forEach(function (x) { if (m >= x.ab) { stR = x.rabatt || 0; stP = x.preis || 0; } });
     var gleichListe = p !== '' && !isNaN(p) && Math.abs(p - vk) < 0.0001;
-    if ((p === '' || isNaN(p) || gleichListe) && stR && vk) t = 'Staffel −' + String(Math.round(stR * 1000) / 10).replace('.', ',') + ' % → ' + eur(vk * (1 - stR)) + ' je Stück · Summe ' + eur(vk * (1 - stR) * m);
+    if ((p === '' || isNaN(p) || gleichListe) && stP) t = 'Staffelpreis ' + eur(stP) + ' je Stück · Summe ' + eur(stP * m);
+    else if ((p === '' || isNaN(p) || gleichListe) && stR && vk) t = 'Staffel −' + String(Math.round(stR * 1000) / 10).replace('.', ',') + ' % → ' + eur(vk * (1 - stR)) + ' je Stück · Summe ' + eur(vk * (1 - stR) * m);
     else if (p === '' || isNaN(p)) t = vk ? 'Leer = Listenpreis ' + eur(vk) : 'Kein VK im Artikel – bitte Preis eintragen.';
     else {
       t = 'Summe ' + eur(p * m);
