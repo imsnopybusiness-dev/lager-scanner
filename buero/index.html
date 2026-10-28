@@ -178,7 +178,7 @@
 <div id="modalRoot"></div>
 
 <script>
-var APP_VERSION = '2026-10-27c';
+var APP_VERSION = '2026-10-28a';
 /* Selbst-Aktualisierung: holt die Seite ohne Cache und lädt neu, wenn es eine neuere Version gibt */
 (function () {
   function pruefen() {
@@ -960,6 +960,16 @@ SEITEN.sortiment = function () {
   }).catch(fehler);
 };
 
+var sheetJsLaden = null;
+function sheetJs() {
+  if (window.XLSX) return Promise.resolve(window.XLSX);
+  if (!sheetJsLaden) sheetJsLaden = new Promise(function (ok, nein) {
+    var sc = document.createElement('script'); sc.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+    sc.onload = function () { ok(window.XLSX); }; sc.onerror = function () { sheetJsLaden = null; nein(new Error('Excel-Modul konnte nicht geladen werden – Internet prüfen.')); };
+    document.head.appendChild(sc);
+  });
+  return sheetJsLaden;
+}
 /* ============================ Neutrale Artikelliste (ohne Briefkopf) ============================ */
 var nl = { titel: '', unter: 'Preise netto zzgl. MwSt. · solange Vorrat reicht', charge: '', kat: 'Alle', verf: true, sp: { bild: true, ean: true, ve: true, menge: true, uvp: false, preis: true }, aus: {}, preise: {} };
 SEITEN.liste = function () {
@@ -972,7 +982,7 @@ SEITEN.liste = function () {
       gruppen[gi[k]].eans[w.ean] = 1;
     });
     var spN = { bild: 'Bild', ean: 'EAN', ve: 'VE', menge: 'Menge (verfügbar)', uvp: 'UVP', preis: 'Preis' };
-    $('#main').innerHTML = kopf('Neutrale Artikelliste', 'Reine Artikelliste ohne Briefkopf und Firmendaten – Titel frei wählbar. Auswahl und Häkchen erscheinen nicht im Druck.', '<button class="btn" id="liPdf">📄 PDF erstellen</button>') +
+    $('#main').innerHTML = kopf('Neutrale Artikelliste', 'Reine Artikelliste ohne Briefkopf und Firmendaten – Titel frei wählbar. Auswahl und Häkchen erscheinen nicht im Druck.', '<button class="btn sek" id="liXls">📊 Excel exportieren</button><button class="btn" id="liPdf">📄 PDF erstellen</button>') +
       '<div class="raster r2"><div class="karte"><h2>Was oben auf der Liste steht</h2>' +
       '<div class="feld"><label>Titel</label><input id="liT" placeholder="z. B. Weihnachtskarten – Restposten" value="' + esc(nl.titel) + '"></div>' +
       '<div class="feld"><label>Zeile darunter (optional)</label><input id="liU" placeholder="leer lassen = keine Zeile" value="' + esc(nl.unter) + '"></div>' +
@@ -1010,6 +1020,41 @@ SEITEN.liste = function () {
     $('#liAlle').onclick = function () { nl.aus = {}; zeichne(); };
     $('#liKeine').onclick = function () { sichtbar.forEach(function (a) { nl.aus[a.ean] = 1; }); zeichne(); };
     zeichne();
+    $('#liXls').onclick = function () {
+      var btn = this, gew = sichtbar.filter(function (a) { return !nl.aus[a.ean]; });
+      if (!nl.titel.trim()) { fehler(new Error('Bitte oben einen Titel für die Liste eingeben.')); $('#liT').focus(); return; }
+      if (!gew.length) { fehler(new Error('Bitte mindestens einen Artikel anhaken.')); return; }
+      mitKnopf(btn, sheetJs()).then(function (XLSX) {
+        var zahlW = function (x) { if (x === '' || x == null) return ''; var n = parseFloat(String(x).replace(/\s/g, '').replace(',', '.')); return isNaN(n) ? '' : n; };
+        var sp = [];
+        if (nl.sp.ean) sp.push(['EAN', function (a) { return String(a.ean); }, 16]);
+        sp.push(['Bezeichnung', function (a) { return a.name; }, 50]);
+        if (nl.sp.ve) sp.push(['VE', function (a) { return zahlW(a.ve); }, 6, '0']);
+        if (nl.sp.menge) sp.push(['Menge', function (a) { return zahlW(a.verfuegbar); }, 10, '#,##0']);
+        if (nl.sp.uvp) sp.push(['UVP', function (a) { return zahlW(a.uvp); }, 10, '#,##0.00 "€"']);
+        if (nl.sp.preis) sp.push(['Preis netto', function (a) { return zahlW(nl.preise[a.ean] !== undefined ? nl.preise[a.ean] : a.vk); }, 12, '#,##0.00 "€"']);
+        if (nl.sp.bild) sp.push(['Bild-Link', function (a) { return a.bild || ''; }, 40]);
+        var aoa = [[nl.titel.trim()], [nl.unter.trim()], [], sp.map(function (c) { return c[0]; })]
+          .concat(gew.map(function (a) { return sp.map(function (c) { return c[1](a); }); }));
+        var ws = XLSX.utils.aoa_to_sheet(aoa);
+        ws['!cols'] = sp.map(function (c) { return { wch: c[2] }; });
+        ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: sp.length - 1 } }, { s: { r: 1, c: 0 }, e: { r: 1, c: sp.length - 1 } }];
+        gew.forEach(function (a, i) {
+          sp.forEach(function (c, j) {
+            var ref = XLSX.utils.encode_cell({ r: 4 + i, c: j }), z = ws[ref]; if (!z) return;
+            if (c[0] === 'EAN') { z.t = 's'; }
+            else if (c[3] && typeof z.v === 'number') z.z = c[3];
+            if (c[0] === 'Bild-Link' && z.v) z.l = { Target: z.v };
+          });
+        });
+        ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 3, c: 0 }, e: { r: 3 + gew.length, c: sp.length - 1 } }) };
+        var wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Artikelliste');
+        var heute = new Date(), d = heute.getFullYear() + '-' + String(heute.getMonth() + 1).padStart(2, '0') + '-' + String(heute.getDate()).padStart(2, '0');
+        var name = (nl.titel.trim() + ' ' + d).replace(/[\\/:*?"<>|]/g, '-') + '.xlsx';
+        XLSX.writeFile(wb, name);
+        toast(name + ' heruntergeladen (' + gew.length + ' Artikel).');
+      }).catch(fehler);
+    };
     $('#liPdf').onclick = function () {
       var eans = sichtbar.filter(function (a) { return !nl.aus[a.ean]; }).map(function (a) { return a.ean; });
       if (!nl.titel.trim()) { fehler(new Error('Bitte oben einen Titel für die Liste eingeben.')); $('#liT').focus(); return; }
