@@ -178,7 +178,7 @@
 <div id="modalRoot"></div>
 
 <script>
-var APP_VERSION = '2026-10-28b';
+var APP_VERSION = '2026-11-08a';
 /* Selbst-Aktualisierung: holt die Seite ohne Cache und lädt neu, wenn es eine neuere Version gibt */
 (function () {
   function pruefen() {
@@ -567,7 +567,7 @@ var belFilter = { typ: '', status: '', q: '' };
 SEITEN.belege = function (arg) {
   if (arg) belFilter.status = arg;
   api('b_belege').then(function (l) {
-    $('#main').innerHTML = kopf('Angebote & Belege', l.length + ' Belege', '<button class="btn sek" onclick="neuerBeleg(\'Proforma\')">＋ Proforma</button><button class="btn" onclick="neuerBeleg(\'Angebot\')">＋ Neues Angebot</button>') +
+    $('#main').innerHTML = kopf('Angebote & Belege', l.length + ' Belege', '<a class="btn sek" href="#import">📥 Eigenes Angebot importieren</a><button class="btn sek" onclick="neuerBeleg(\'Proforma\')">＋ Proforma</button><button class="btn" onclick="neuerBeleg(\'Angebot\')">＋ Neues Angebot</button>') +
       '<div class="karte"><div class="filter"><input type="search" id="bQ" placeholder="Suchen nach Nr., Kunde, Notiz …" value="' + esc(belFilter.q) + '">' +
       '<select id="bTyp">' + opt(['Angebot', 'Proforma', 'Auftrag', 'Rechnung'], belFilter.typ, 'Alle Typen') + '</select>' +
       '<select id="bStatus">' + opt(['Entwurf', 'Offen', 'Angenommen', 'Geliefert', 'Umgewandelt', 'Abgelehnt', 'Storniert'], belFilter.status, 'Alle Status') + '</select></div>' +
@@ -612,20 +612,22 @@ SEITEN.beleg = function (nr) {
 function zeichneBeleg(b, e) {
   var bearbeitbar = ['Umgewandelt', 'Storniert', 'Abgelehnt', 'Geliefert'].indexOf(b.status) < 0;
   var ohneVk = b.positionenListe.filter(function (p) { return !p.preis; }).length;
-  var warn = b.positionenListe.filter(function (p) { return p.pruefung && p.pruefung !== 'OK' && p.pruefung !== 'geliefert'; });
+  var warn = b.positionenListe.filter(function (p) { return p.pruefung && p.pruefung !== 'OK' && p.pruefung !== 'geliefert' && p.pruefung !== 'Beschaffung'; });
   var mw = b.summe * b.mwst, roh = b.summe - b.ekSumme;
   var titelTyp = { Angebot: 'Angebot', Proforma: 'Proforma-Rechnung', Auftrag: 'Auftragsbestätigung', Rechnung: 'Rechnung' }[b.typ] || b.typ;
   $('#main').innerHTML = kopf(esc(titelTyp) + ' ' + esc(b.nr) + ' ' + statusBadge(b.status), '<a href="#belege">← alle Belege</a>' + (b.notiz ? ' · ' + esc(b.notiz) : ''),
     '<button class="btn sek" id="pdfBtn">📄 PDF-Vorschau</button><button class="btn sek" id="lsBtn">🚚 Lieferschein</button>' +
-    (b.typ === 'Angebot' && bearbeitbar ? '<button class="btn" id="umBtn">➡ In Proforma umwandeln</button>' : '') +
-    (b.typ === 'Proforma' && b.status === 'Angenommen' ? '<button class="btn" id="gelBtn">✓ Als geliefert markieren</button>' : '')) +
+    (b.typ === 'Angebot' && bearbeitbar && b.status !== 'Angenommen' ? '<button class="btn sek" id="resBtn">🔒 Angenommen – Ware reservieren</button>' : '') +
+    (b.typ === 'Angebot' && bearbeitbar ? '<button class="btn sek" id="umBtn">➡ Proforma (Vorkasse)</button><button class="btn" id="reBtn">🧾 Rechnung – Ware verschickt</button>' : '') +
+    (b.typ !== 'Angebot' && b.status === 'Angenommen' ? '<button class="btn" id="gelBtn">✓ Als geliefert markieren</button>' : '')) +
+    (b.typ === 'Angebot' && b.status === 'Angenommen' ? '<div class="info" style="margin-bottom:14px">🔒 Angebot angenommen – die Ware ist für ' + esc(b.firma || 'den Kunden') + ' reserviert. Wenn verschickt: <b>Rechnung – Ware verschickt</b>, bei Vorkasse: <b>Proforma</b>.</div>' : '') +
     '<div class="raster r21" style="grid-template-columns:minmax(0,1fr) 310px"><div>' +
     (ohneVk ? '<div class="hinweis">⚠️ ' + ohneVk + ' Position(en) ohne VK-Preis – sie stehen mit 0 € im Beleg. Preis im Artikel festlegen (auf die Zeile klicken).</div>' : '') +
     (warn.length ? '<div class="hinweis">Prüfen: ' + warn.map(function (p) { return esc(p.name.slice(0, 40)) + ' – <b>' + esc(p.pruefung) + '</b>'; }).join(' · ') + '</div>' : '') +
     '<div class="karte"><h2>Positionen</h2><div class="tab-wrap"><table><thead><tr><th></th><th>Artikel</th><th class="z">VE</th><th class="z">Verfügbar</th><th class="z">Menge</th><th class="z">Rabatt %</th><th class="z">Einzelpreis</th><th class="z">Gesamt</th><th></th></tr></thead><tbody>' +
     (b.positionenListe.length ? b.positionenListe.map(function (p) {
-      var ok = !p.pruefung || p.pruefung === 'OK' || p.pruefung === 'geliefert';
-      return '<tr data-ean="' + esc(p.ean) + '"><td>' + bildTag(p.bild) + '</td><td style="min-width:220px"><a href="#" class="artLink">' + esc(p.name) + '</a><br><small class="grau mono">' + esc(p.ean) + '</small>' + (ok ? '' : ' <span class="badge b-warn">' + esc(p.pruefung) + '</span>') + '</td>' +
+      var ok = !p.pruefung || p.pruefung === 'OK' || p.pruefung === 'geliefert' || p.pruefung === 'Beschaffung';
+      return '<tr data-ean="' + esc(p.ean) + '"><td>' + bildTag(p.bild) + '</td><td style="min-width:220px"><a href="#" class="artLink">' + esc(p.name) + '</a><br><small class="grau mono">' + esc(p.ean) + '</small>' + (p.pruefung === 'Beschaffung' ? ' <span class="badge">Beschaffung</span>' : '') + (ok ? '' : ' <span class="badge b-warn">' + esc(p.pruefung) + '</span>') + '</td>' +
         '<td class="z">' + zahl(p.ve) + '</td><td class="z">' + zahl(p.verfuegbar) + '</td>' +
         '<td class="z">' + (bearbeitbar ? '<input class="inl" data-f="menge" style="width:76px" value="' + p.menge + '" inputmode="numeric">' : zahl(p.menge)) + '</td>' +
         '<td class="z">' + (bearbeitbar ? '<input class="inl" style="width:58px" data-f="rabatt" value="' + (p.rabatt ? komma(Math.round(p.rabatt * 1000) / 10) : '') + '" placeholder="0">' : (p.rabatt ? komma(Math.round(p.rabatt * 1000) / 10) + ' %' : '')) +
@@ -646,9 +648,12 @@ function zeichneBeleg(b, e) {
     '<div class="fg"><div class="feld"><label>Datum</label><input type="date" id="bkDatum" value="' + esc(b.datum) + '"' + (bearbeitbar ? '' : ' disabled') + '></div>' +
     '<div class="feld"><label>' + (b.typ === 'Angebot' ? 'Gültig bis' : 'Typ') + '</label><input disabled value="' + (b.typ === 'Angebot' ? datum(b.gueltig) : esc(b.typ)) + '"></div></div>' +
     '<div class="feld"><label>Status</label><select id="bkStatus">' + opt(e.status, b.status) + '</select></div>' +
-    '<div class="info" style="margin:-4px 0 12px;font-size:12.5px">Entwurf = in Arbeit · <b>Offen</b> = beim Kunden, reserviert Ware · <b>Angenommen</b> = Auftrag, reserviert · <b>Geliefert</b> = bucht vom Bestand ab</div>' +
+    '<div class="info" style="margin:-4px 0 12px;font-size:12.5px">Entwurf = in Arbeit · <b>Offen</b> = beim Kunden, reserviert Ware · <b>Angenommen</b> = zugesagt, reserviert · <b>Geliefert</b> = bucht vom Bestand ab</div>' +
     '<div class="feld"><label>Notiz (intern)</label><textarea id="bkNotiz">' + esc(b.notiz) + '</textarea></div>' +
     '<button class="btn sek" id="bkSpeichern" style="width:100%;justify-content:center">Änderungen speichern</button></div>' +
+    '<div class="karte"><h2>Eigenes Dokument</h2>' + (b.dokument ? '<a class="btn sek" style="width:100%;justify-content:center" href="' + esc(b.dokument) + '" target="_blank" rel="noopener">📎 Eigenes Angebot öffnen</a>' : '<div class="grau" style="font-size:12.5px;margin-bottom:8px">Kein eigenes Dokument angehängt.</div>') +
+      (/^BA-/.test(b.nr) ? '<div class="info" style="margin:10px 0;font-size:12.5px">Angebotsnummer zum Eintragen in euer PDF: <b class="mono">' + esc(b.nr) + '</b></div>' : '') +
+      '<label class="btn sek" style="width:100%;justify-content:center;margin-top:8px;cursor:pointer">' + (b.dokument ? '🔄 Dokument ersetzen' : '📎 Dokument anhängen') + '<input type="file" id="dokDatei" accept=".pdf,.doc,.docx,application/pdf" hidden></label></div>' +
     '<div class="karte"><h2>Weitere Aktionen</h2><div style="display:flex;flex-direction:column;gap:8px">' +
     '<button class="btn sek" id="kopBtn">📋 Kopieren (anderer Kunde)</button>' +
     '<button class="btn sek" id="lexBtn">⬇ Positionen für Lexware (CSV)</button>' +
@@ -696,6 +701,11 @@ function zeichneBeleg(b, e) {
     $('#npPreis').onkeydown = function (ev) { if (ev.key === 'Enter') hinzu(); };
   }
   // Kopf
+  $('#dokDatei').onchange = function () {
+    var f = this.files[0]; if (!f) return;
+    dateiAlsDataUrl(f).then(function (d) { toast('Dokument wird hochgeladen …'); return api('b_beleg_dokument', { nr: b.nr, datei: d }); })
+      .then(function (x) { toast('Dokument gespeichert.'); zeichneBeleg(x, e); }).catch(fehler);
+  };
   $('#bkSpeichern').onclick = function () {
     var d = { status: $('#bkStatus').value, notiz: $('#bkNotiz').value };
     if (!$('#bkKunde').disabled) d.kunde = $('#bkKunde').value;
@@ -708,6 +718,16 @@ function zeichneBeleg(b, e) {
     mitKnopf(this, api('b_pdf', { art: 'beleg', nr: b.nr })).then(pdfZeigen).catch(fehler);
   };
   $('#lsBtn').onclick = function () { mitKnopf(this, api('b_pdf', { art: 'lieferschein', nr: b.nr })).then(pdfZeigen).catch(fehler); };
+  if ($('#resBtn')) $('#resBtn').onclick = function () {
+    var btn = this;
+    frage('Angebot angenommen?', '<p>Die Positionen von <b>' + esc(b.nr) + '</b> werden für den Kunden <b>reserviert</b> – sie zählen dann nicht mehr als verfügbar.</p><p class="grau">Rechnung oder Proforma erstellst du später, z. B. wenn die Ware verschickt wird.</p>', 'Reservieren')
+      .then(function (ja) { if (ja) mitKnopf(btn, api('b_beleg_kopf', { nr: b.nr, daten: { status: 'Angenommen' } })).then(function (x) { toast('Ware reserviert.'); neu(x); }).catch(fehler); });
+  };
+  if ($('#reBtn')) $('#reBtn').onclick = function () {
+    var btn = this;
+    frage('Rechnung erstellen – Ware verschickt?', '<p>Aus <b>' + esc(b.nr) + '</b> wird eine <b>Rechnung</b> mit allen Positionen. Die Ware wird dabei als <b>geliefert</b> vom Lagerbestand abgebucht.</p><p class="grau">Für Kunden, denen ihr vertraut (Zahlung nach Lieferung). Das Angebot wird auf „Umgewandelt“ gesetzt.</p>', 'Rechnung erstellen')
+      .then(function (ja) { if (ja) mitKnopf(btn, api('b_umwandeln', { nr: b.nr, ziel: 'Rechnung', status: 'Geliefert' })).then(function (x) { toast(x.nr + ' erstellt – Ware abgebucht.'); location.hash = '#beleg/' + x.nr; }).catch(fehler); });
+  };
   if ($('#umBtn')) $('#umBtn').onclick = function () {
     var btn = this;
     frage('In Proforma umwandeln?', '<p>Aus <b>' + esc(b.nr) + '</b> wird eine neue Proforma-Rechnung mit allen Positionen (Status „Angenommen“, reserviert die Ware).</p><p class="grau">Das Angebot wird auf „Umgewandelt“ gesetzt.</p>', 'Umwandeln')
@@ -978,6 +998,81 @@ function sheetJs() {
   });
   return sheetJsLaden;
 }
+/* ============================ Eigenes Angebot importieren (Beschaffung, BA-…) ============================ */
+function dateiAlsDataUrl(f) {
+  return new Promise(function (ok, nein) {
+    if (f.size > 15 * 1024 * 1024) { nein(new Error('Die Datei ist größer als 15 MB.')); return; }
+    var r = new FileReader(); r.onload = function () { ok(r.result); }; r.onerror = function () { nein(new Error('Datei konnte nicht gelesen werden.')); }; r.readAsDataURL(f);
+  });
+}
+SEITEN.import = function () {
+  einst(true).then(function (e) {
+    var zeilen = [{}, {}];
+    var lief = e.lieferanten.map(function (l) { return { v: l.nr, t: l.firma }; });
+    $('#main').innerHTML = kopf('Eigenes Angebot importieren', '<a href="#belege">← alle Belege</a> · für Ware, die ihr für Kunden beschafft – bekommt eine eigene Nummer <b>BA-…</b>', '<button class="btn" id="imOk">✓ Importieren & Nummer vergeben</button>') +
+      '<div class="raster r2"><div class="karte"><h2>Angebot</h2>' +
+      '<div class="feld"><label>Kunde</label><select id="imKunde">' + opt(e.kunden.map(function (k) { return { v: k.nr, t: k.firma + ' (' + k.nr + ')' }; }), '', '– Kunde wählen –') + '</select></div>' +
+      '<div class="grau" style="font-size:12.5px;margin:-4px 0 12px">Kunde fehlt? <a href="#" id="imNeuK">Neuen Kunden anlegen</a></div>' +
+      '<div class="fg"><div class="feld"><label>Angebotsdatum</label><input type="date" id="imDatum" value="' + heuteIso() + '"></div>' +
+      '<div class="feld"><label>Status</label><select id="imStatus"><option value="Offen">Offen (beim Kunden)</option><option value="Entwurf">Entwurf</option></select></div></div>' +
+      '<div class="feld"><label>Notiz (intern)</label><input id="imNotiz" placeholder="z. B. Strauchstützen IGA 2027 – Lieferant ELGarden"></div></div>' +
+      '<div class="karte"><h2>Euer Dokument</h2><div class="grau" style="font-size:12.5px;margin-bottom:10px">PDF oder Word-Datei eures Angebots – wird in Google Drive unter „Warenwirtschaft PDFs / Eigene Angebote“ abgelegt und am Beleg verlinkt. Optional, geht auch später.</div>' +
+      '<label class="btn sek" style="cursor:pointer">📎 Datei wählen<input type="file" id="imDatei" accept=".pdf,.doc,.docx,application/pdf" hidden></label> <span class="grau" id="imDateiName">keine Datei</span></div></div>' +
+      '<div class="karte"><h2>Positionen</h2><div class="grau" style="font-size:12.5px;margin-bottom:8px">Jede Position wird als Beschaffungs-Artikel (ohne Lagerbestand) angelegt. Staffel optional, z. B. <span class="mono">100:5,00; 500:4,50</span> – dann gilt der Staffelpreis zur Menge. Tipp: Zeilen aus Excel (Bezeichnung · Menge · VK · EK) in ein Bezeichnungsfeld einfügen.</div>' +
+      '<div class="tab-wrap"><table><thead><tr><th>Bezeichnung</th><th class="z">Menge</th><th class="z">VK €/Stk</th><th class="z">EK €/Stk</th><th>Lieferant</th><th>Staffel (optional)</th><th class="z">Summe</th><th></th></tr></thead><tbody id="imBody"></tbody></table></div>' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:12px;flex-wrap:wrap"><button class="btn sek" id="imPlus">＋ Position</button><div class="grau" id="imSumme"></div></div></div>';
+    var zahlL = function (x) { var t = String(x == null ? '' : x).replace(/\s|€/g, ''); if (/,/.test(t)) t = t.replace(/\./g, '').replace(',', '.'); var n = parseFloat(t); return isNaN(n) ? 0 : n; };
+    var preisZu = function (z) {
+      var vk = zahlL(z.vk), m = zahlL(z.menge), st = staffelParse(z.staffel || ''), p = vk;
+      st.forEach(function (x) { if (m >= x.ab) p = x.preis ? x.preis : vk * (1 - x.rabatt); });
+      return p;
+    };
+    var summe = function () {
+      var s = 0, ek = 0; zeilen.forEach(function (z) { if (!String(z.name || '').trim()) return; var m = zahlL(z.menge); s += m * preisZu(z); ek += m * zahlL(z.ek); });
+      $('#imSumme').innerHTML = 'Summe netto <b>' + eur(s) + '</b>' + (ek ? ' · EK ' + eur(ek) + ' · Rohertrag <b>' + eur(s - ek) + '</b>' + (s ? ' (' + proz((s - ek) / s) + ')' : '') : '');
+      $$('#imBody tr').forEach(function (tr, i) { var z = zeilen[i]; $('.imZs', tr).textContent = String(z.name || '').trim() ? eur(zahlL(z.menge) * preisZu(z)) : ''; });
+    };
+    var zeichne = function () {
+      $('#imBody').innerHTML = zeilen.map(function (z, i) {
+        return '<tr data-i="' + i + '"><td style="min-width:240px"><input class="inl" data-k="name" style="width:100%;text-align:left" value="' + esc(z.name || '') + '" placeholder="z. B. Strauchstütze 75×30 cm"></td>' +
+          '<td class="z"><input class="inl" data-k="menge" style="width:80px" inputmode="numeric" value="' + esc(z.menge || '') + '"></td>' +
+          '<td class="z"><input class="inl" data-k="vk" style="width:80px" inputmode="decimal" value="' + esc(z.vk || '') + '"></td>' +
+          '<td class="z"><input class="inl" data-k="ek" style="width:80px" inputmode="decimal" value="' + esc(z.ek || '') + '" placeholder="–"></td>' +
+          '<td><select data-k="lieferant" style="min-width:120px">' + opt(lief, z.lieferant || '', '–') + '</select></td>' +
+          '<td><input class="inl" data-k="staffel" style="width:170px;text-align:left" value="' + esc(z.staffel || '') + '" placeholder="–"></td>' +
+          '<td class="z imZs"></td><td><button class="icon-btn weg" title="Zeile entfernen">✕</button></td></tr>';
+      }).join('');
+      $$('#imBody [data-k]').forEach(function (el) {
+        var i = +el.closest('tr').dataset.i;
+        el.oninput = el.onchange = function () { zeilen[i][el.dataset.k] = el.value; summe(); };
+        if (el.dataset.k === 'name') el.onpaste = function (ev) {
+          var t = (ev.clipboardData || window.clipboardData).getData('text');
+          if (!/[\t\n]/.test(t)) return;
+          ev.preventDefault();
+          var neu = t.split(/\r?\n/).filter(function (x) { return x.trim(); }).map(function (x) { var c = x.split('\t'); return { name: (c[0] || '').trim(), menge: (c[1] || '').trim(), vk: (c[2] || '').trim(), ek: (c[3] || '').trim() }; });
+          zeilen.splice.apply(zeilen, [i, 1].concat(neu)); zeichne();
+        };
+      });
+      $$('#imBody button.weg').forEach(function (b) { b.onclick = function () { zeilen.splice(+b.closest('tr').dataset.i, 1); if (!zeilen.length) zeilen.push({}); zeichne(); }; });
+      summe();
+    };
+    zeichne();
+    $('#imPlus').onclick = function () { zeilen.push({}); zeichne(); var x = $$('#imBody input[data-k=name]'); x[x.length - 1].focus(); };
+    $('#imNeuK').onclick = function (ev) { ev.preventDefault(); kundeForm(null, function (k) { einst(true).then(function (e2) { $('#imKunde').innerHTML = opt(e2.kunden.map(function (x) { return { v: x.nr, t: x.firma + ' (' + x.nr + ')' }; }), k.nr, '– Kunde wählen –'); }); }); };
+    $('#imDatei').onchange = function () { $('#imDateiName').textContent = this.files[0] ? this.files[0].name : 'keine Datei'; };
+    $('#imOk').onclick = function () {
+      var btn = this, pos = zeilen.filter(function (z) { return String(z.name || '').trim(); });
+      if (!pos.length) { fehler(new Error('Bitte mindestens eine Position eintragen.')); return; }
+      if (!$('#imKunde').value && !confirm('Ohne Kunde importieren?')) return;
+      var f = $('#imDatei').files[0];
+      mitKnopf(btn, (f ? dateiAlsDataUrl(f) : Promise.resolve('')).then(function (d) {
+        return api('b_import_angebot', { kunde: $('#imKunde').value, datum: $('#imDatum').value, status: $('#imStatus').value, notiz: $('#imNotiz').value, datei: d,
+          positionen: pos.map(function (z) { return { name: z.name, menge: z.menge, vk: z.vk, ek: z.ek, lieferant: z.lieferant, staffel: z.staffel }; }) });
+      })).then(function (b) { C.artikel = null; toast(b.nr + ' angelegt – diese Nummer ins Angebot eintragen.'); location.hash = '#beleg/' + b.nr; }).catch(fehler);
+    };
+  }).catch(fehler);
+};
+
 /* ============================ Neutrale Artikelliste (ohne Briefkopf) ============================ */
 var nl = { titel: '', unter: 'Preise netto zzgl. MwSt. · solange Vorrat reicht', charge: '', kat: 'Alle', verf: true, sp: { bild: true, ean: true, ve: true, menge: true, uvp: false, preis: true }, aus: {}, preise: {} };
 SEITEN.liste = function () {
