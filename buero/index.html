@@ -178,7 +178,7 @@
 <div id="modalRoot"></div>
 
 <script>
-var APP_VERSION = '2026-11-08a';
+var APP_VERSION = '2026-11-11a';
 /* Selbst-Aktualisierung: holt die Seite ohne Cache und lädt neu, wenn es eine neuere Version gibt */
 (function () {
   function pruefen() {
@@ -645,7 +645,7 @@ function zeichneBeleg(b, e) {
     '</div><div>' +
     '<div class="karte"><h2>Beleg</h2>' +
     '<div class="feld"><label>Kunde</label><select id="bkKunde"' + (bearbeitbar ? '' : ' disabled') + '>' + opt(e.kunden.map(function (k) { return { v: k.nr, t: k.firma + ' (' + k.nr + ')' }; }), b.kunde, '– kein Kunde –') + '</select></div>' +
-    '<div class="fg"><div class="feld"><label>Datum</label><input type="date" id="bkDatum" value="' + esc(b.datum) + '"' + (bearbeitbar ? '' : ' disabled') + '></div>' +
+    '<div class="fg"><div class="feld"><label>Datum</label><input type="date" id="bkDatum" value="' + esc(b.datum) + '"' + (['Umgewandelt', 'Storniert'].indexOf(b.status) < 0 ? '' : ' disabled') + '></div>' +
     '<div class="feld"><label>' + (b.typ === 'Angebot' ? 'Gültig bis' : 'Typ') + '</label><input disabled value="' + (b.typ === 'Angebot' ? datum(b.gueltig) : esc(b.typ)) + '"></div></div>' +
     '<div class="feld"><label>Status</label><select id="bkStatus">' + opt(e.status, b.status) + '</select></div>' +
     '<div class="info" style="margin:-4px 0 12px;font-size:12.5px">Entwurf = in Arbeit · <b>Offen</b> = beim Kunden, reserviert Ware · <b>Angenommen</b> = zugesagt, reserviert · <b>Geliefert</b> = bucht vom Bestand ab</div>' +
