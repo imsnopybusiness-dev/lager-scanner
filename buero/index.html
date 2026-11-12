@@ -145,6 +145,10 @@
   .chips { display:flex; gap:6px; flex-wrap:wrap; }
   .chip { border:0; border-radius:99px; padding:5px 12px; background:var(--g3); color:var(--t); font-weight:500; cursor:pointer; font-size:13px; }
   .chip.an { background:var(--g); color:#fff; }
+  .fg4 { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:8px; }
+  .fg4 small { display:block; margin-bottom:3px; font-size:12px; }
+  table.ek-kalk { font-size:13px; } table.ek-kalk td, table.ek-kalk th { padding:6px 8px; }
+  .ek-pack { font-size:12.5px; color:var(--t); background:var(--g3); border-radius:8px; padding:6px 8px; }
   input.markiert { border-color:var(--o); box-shadow:0 0 0 3px var(--o2); }
   .hinweis-box { background:var(--g3); border-radius:10px; padding:9px 12px; margin-bottom:12px; font-size:13.5px; }
   .ek-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); gap:14px; }
@@ -203,7 +207,7 @@
 <div id="modalRoot"></div>
 
 <script>
-var APP_VERSION = '2026-11-12b';
+var APP_VERSION = '2026-11-12c';
 /* Selbst-Aktualisierung: holt die Seite ohne Cache und lädt neu, wenn es eine neuere Version gibt */
 (function () {
   function pruefen() {
@@ -1036,6 +1040,15 @@ function ekKalk(ek_, menge, vk) {
   if (ek_ != null && vk != null && vk > 0) { o.margeStk = vk - ek_; o.margeProz = (vk - ek_) / vk; if (menge != null) o.ertrag = o.margeStk * menge; }
   return o;
 }
+function ekPackText(x) {
+  var t = [];
+  if (x.innen) t.push(zahl(x.innen) + ' Stk/Innenkarton');
+  if (x.karton) t.push(zahl(x.karton) + ' Stk/Karton');
+  if (x.kartonsPal) t.push(zahl(x.kartonsPal) + ' Kartons/Pal.');
+  var pp = x.proPal || (x.karton && x.kartonsPal ? x.karton * x.kartonsPal : '');
+  if (pp) t.push('<b>' + zahl(pp) + ' Stk/Palette</b>');
+  return t.join(' · ');
+}
 function ekMargeTag(p) { if (p == null) return ''; var k = p >= 0.4 ? 'zahl-gut' : (p >= 0.2 ? 'zahl-knapp' : 'zahl-leer'); return '<span class="' + k + '">' + proz(p) + '</span>'; }
 function ekLieferantenListe() {
   var s = {}; (ek.daten.lieferanten || []).forEach(function (l) { s[l.firma] = 1; });
@@ -1082,12 +1095,13 @@ SEITEN.einkauf = function (arg) {
         var such = filterSuche ? d.suche.filter(function (s) { return s.nr === filterSuche; })[0] : null;
         el.innerHTML = (filterSuche ? '<div class="hinweis-box">Nur Fundstücke zur Suche <b>' + esc(such ? such.was : filterSuche) + '</b> · <a href="#einkauf/funde">alle zeigen</a></div>' : '') +
           (l2.length ? '<div class="ek-grid">' + l2.map(function (x) {
-            var k = ekKalk(ekZahl(x.ek), ekZahl(x.menge), ekZahl(x.vk)), s = d.suche.filter(function (y) { return y.nr === x.suche; })[0];
+            var kA = ekKalk(ekZahl(x.ek), ekZahl(x.menge), ekZahl(x.vk)), kZ = ekKalk(ekZahl(x.zielEk), ekZahl(x.menge), ekZahl(x.vk)), s = d.suche.filter(function (y) { return y.nr === x.suche; })[0], pk = ekPackText(x);
             return '<div class="ek-karte" data-nr="' + esc(x.nr) + '"><div class="ek-bild">' + (x.bild ? '<img src="' + esc(x.bild) + '" alt="" loading="lazy">' : '<span>Kein Bild</span>') + statusBadge(x.status) + '</div>' +
               '<div class="ek-text"><b>' + esc(x.artikel) + '</b><small>' + esc(ekLieferantName(x.lieferant) || 'Lieferant offen') + (s ? ' · zu „' + esc(s.was) + '“' : '') +
-                ((x.ve !== '' && x.ve != null) || (x.lagerLief !== '' && x.lagerLief != null) ? '<br>' + [x.ve ? 'VE ' + zahl(x.ve) : '', x.lagerLief ? zahl(x.lagerLief) + ' auf Lager' : '', x.artnr ? 'Art. ' + esc(x.artnr) : ''].filter(String).join(' · ') : '') + '</small>' +
-              '<div class="ek-zahlen"><div><small>EK/Stk</small>' + (x.ek === '' ? '–' : eurP(x.ek)) + '</div><div><small>Menge</small>' + zahl(x.menge) + '</div><div><small>Summe</small>' + (k.summe == null ? '–' : eur(k.summe)) + '</div>' +
-              '<div><small>VK ca.</small>' + (x.vk === '' ? '–' : eurP(x.vk)) + '</div><div><small>Marge</small>' + (k.margeProz == null ? '–' : ekMargeTag(k.margeProz)) + '</div><div><small>Rohertrag</small>' + (k.ertrag == null ? '–' : eur(k.ertrag)) + '</div></div>' +
+                (x.ve || x.lagerLief || x.artnr ? '<br>' + [x.ve ? 'ab ' + zahl(x.ve) + ' Stk' : '', x.lagerLief ? zahl(x.lagerLief) + ' auf Lager' : '', x.artnr ? 'Art. ' + esc(x.artnr) : ''].filter(String).join(' · ') : '') + '</small>' +
+              '<div class="ek-zahlen"><div><small>EK Angebot</small>' + (x.ek === '' ? '–' : eurP(x.ek)) + '</div><div><small>Unser Ziel-EK</small>' + (x.zielEk === '' || x.zielEk == null ? '–' : '<b>' + eurP(x.zielEk) + '</b>') + '</div><div><small>VK ca.</small>' + (x.vk === '' ? '–' : eurP(x.vk)) + '</div>' +
+              '<div><small>Marge Angebot</small>' + (kA.margeProz == null ? '–' : ekMargeTag(kA.margeProz)) + '</div><div><small>Marge Ziel</small>' + (kZ.margeProz == null ? '–' : ekMargeTag(kZ.margeProz)) + '</div><div><small>Menge</small>' + zahl(x.menge) + '</div></div>' +
+              (pk ? '<div class="ek-pack">📦 ' + pk + '</div>' : '') +
               (x.link ? '<a class="btn sek klein" href="' + esc(ekLink(x.link)) + '" target="_blank" rel="noopener" onclick="event.stopPropagation()">🔗 Zum Angebot</a>' : '') + '</div></div>';
           }).join('') + '</div>' : '<div class="leerstand">' + (d.funde.length ? 'Nichts gefunden.' : 'Noch keine Fundstücke. Wenn ihr online oder beim Lieferanten etwas Interessantes seht: Link, Preis und Screenshot hier ablegen.') + '</div>');
         $$('.ek-karte', el).forEach(function (c) { c.onclick = function () { ekFundForm(d.funde.filter(function (x) { return x.nr === c.dataset.nr; })[0]); }; });
@@ -1148,26 +1162,47 @@ function ekFundForm(x, sucheNr, hinweis) {
     '<div class="feld"><label>Lieferant / Shop</label><input data-f="lieferant" list="ekLief" value="' + esc(ekLieferantName(x.lieferant) || '') + '" placeholder="Auswählen oder eintippen"></div>' +
     '<div class="feld"><label>Status</label><select data-f="status">' + opt(EK_STATUS.funde, x.status) + '</select></div>' +
     '<div class="feld voll"><label>Link zum Angebot</label><div style="display:flex;gap:8px"><input data-f="link" value="' + esc(x.link || '') + '" placeholder="https://…"><a class="btn sek" id="ekLinkAuf" target="_blank" rel="noopener">Öffnen</a></div></div>' +
-    '<div class="feld"><label>EK netto €/Stk</label><input data-f="ek" value="' + esc(komma(x.ek)) + '" inputmode="decimal"></div>' +
-    '<div class="feld"><label>Menge (Stk)</label><input data-f="menge" value="' + esc(komma(x.menge)) + '" inputmode="numeric"></div>' +
+    '<div class="feld"><label>EK Angebot €/Stk <span class="grau">(was der Lieferant will)</span></label><input data-f="ek" value="' + esc(komma(x.ek)) + '" inputmode="decimal"></div>' +
+    '<div class="feld"><label>Unser Zielpreis EK €/Stk <span class="grau">(dafür nehmen wir es)</span></label><input data-f="zielEk" value="' + esc(komma(x.zielEk)) + '" inputmode="decimal"></div>' +
     '<div class="feld"><label>VK geschätzt €/Stk</label><input data-f="vk" value="' + esc(komma(x.vk)) + '" inputmode="decimal"></div>' +
-    '<div class="feld"><label>Gehört zur Suche</label><select data-f="suche">' + opt(suchen.map(function (s) { return { v: s.nr, t: s.was }; }), x.suche, '– keine –') + '</select></div>' +
-    '<div class="feld voll"><div class="mini-stat" id="ekKalk" style="grid-template-columns:repeat(4,1fr);margin:0"></div></div>' +
+    '<div class="feld"><label>Menge (Stk)</label><input data-f="menge" value="' + esc(komma(x.menge)) + '" inputmode="numeric"></div>' +
+    '<div class="feld voll"><div class="tab-wrap"><table class="ek-kalk" id="ekKalk"></table></div><div class="grau" id="ekKalkHinweis" style="font-size:12.5px;margin-top:4px"></div></div>' +
+    '<div class="feld voll"><label>Verpackung</label><div class="fg4">' +
+    '<div><small class="grau">Stk/Innenkarton</small><input data-f="innen" value="' + esc(komma(x.innen)) + '" inputmode="numeric"></div>' +
+    '<div><small class="grau">Stk/Karton</small><input data-f="karton" value="' + esc(komma(x.karton)) + '" inputmode="numeric"></div>' +
+    '<div><small class="grau">Kartons/Palette</small><input data-f="kartonsPal" value="' + esc(komma(x.kartonsPal)) + '" inputmode="numeric"></div>' +
+    '<div><small class="grau">Stk/Palette</small><input data-f="proPal" value="' + esc(komma(x.proPal)) + '" inputmode="numeric"></div></div>' +
+    '<div class="grau" id="ekPackHinweis" style="font-size:12.5px;margin-top:6px"></div></div>' +
+    '<div class="feld"><label>Mindestmenge (Verkauf pro)</label><input data-f="ve" value="' + esc(komma(x.ve)) + '" inputmode="numeric"></div>' +
+    '<div class="feld"><label>Bestand beim Lieferanten</label><input data-f="lagerLief" value="' + esc(komma(x.lagerLief)) + '" inputmode="numeric"></div>' +
     '<div class="feld"><label>EAN</label><input data-f="ean" value="' + esc(x.ean || '') + '" inputmode="numeric"></div>' +
     '<div class="feld"><label>Art.-Nr. beim Lieferanten</label><input data-f="artnr" value="' + esc(x.artnr || '') + '"></div>' +
-    '<div class="feld"><label>VE (Stk) / Mindestmenge</label><input data-f="ve" value="' + esc(komma(x.ve)) + '" inputmode="numeric"></div>' +
-    '<div class="feld"><label>Bestand beim Lieferanten</label><input data-f="lagerLief" value="' + esc(komma(x.lagerLief)) + '" inputmode="numeric"></div>' +
+    '<div class="feld voll"><label>Gehört zur Suche</label><select data-f="suche">' + opt(suchen.map(function (s) { return { v: s.nr, t: s.was }; }), x.suche, '– keine –') + '</select></div>' +
     '<div class="feld voll"><label>Produktinfos</label><textarea data-f="infos" rows="4">' + esc(x.infos || '') + '</textarea></div>' +
     '<div class="feld voll"><label>Notiz</label><textarea data-f="notiz" placeholder="z. B. Mindestabnahme 1 Palette, Versand ab Polen">' + esc(x.notiz || '') + '</textarea></div></div>' + ekLieferantenListe(), ekFuss(!neu && x));
   if (hinweis) $('.inhalt', dr.el).insertAdjacentHTML('afterbegin', '<div class="hinweis-box">' + hinweis + '</div>');
   $$('[data-zu]', dr.el).forEach(function (b) { b.onclick = dr.zu; });
   var w = function (f) { return $('[data-f="' + f + '"]', dr.el); };
+  var proPalHand = !!(x.proPal && x.karton && x.kartonsPal && Number(x.proPal) !== x.karton * x.kartonsPal);
   var kalk = function () {
-    var k = ekKalk(ekZahl(w('ek').value), ekZahl(w('menge').value), ekZahl(w('vk').value));
-    $('#ekKalk', dr.el).innerHTML = '<div><b>' + (k.summe == null ? '–' : eur(k.summe)) + '</b><small>Einkauf gesamt</small></div><div><b>' + (k.margeStk == null ? '–' : eurP(k.margeStk)) + '</b><small>Marge/Stk</small></div>' +
-      '<div><b>' + (k.margeProz == null ? '–' : ekMargeTag(k.margeProz)) + '</b><small>Marge %</small></div><div><b>' + (k.ertrag == null ? '–' : eur(k.ertrag)) + '</b><small>Rohertrag</small></div>';
+    var a = ekZahl(w('ek').value), z = ekZahl(w('zielEk').value), menge = ekZahl(w('menge').value), vk = ekZahl(w('vk').value);
+    var zeile = function (titel, preis) {
+      var k = ekKalk(preis, menge, vk);
+      return '<tr><td>' + titel + '</td><td class="z">' + (preis == null ? '–' : eurP(preis)) + '</td><td class="z">' + (k.summe == null ? '–' : eur(k.summe)) + '</td><td class="z">' + (k.margeStk == null ? '–' : eurP(k.margeStk)) + '</td><td class="z">' + (k.margeProz == null ? '–' : ekMargeTag(k.margeProz)) + '</td><td class="z">' + (k.ertrag == null ? '–' : eur(k.ertrag)) + '</td></tr>';
+    };
+    $('#ekKalk', dr.el).innerHTML = '<thead><tr><th></th><th class="z">EK/Stk</th><th class="z">Einkauf gesamt</th><th class="z">Marge/Stk</th><th class="z">Marge</th><th class="z">Rohertrag</th></tr></thead><tbody>' +
+      zeile('Angebot', a) + zeile('<b>Unser Ziel</b>', z) + '</tbody>';
+    $('#ekKalkHinweis', dr.el).innerHTML = a != null && z != null && a > 0 ? 'Unser Ziel liegt ' + (z <= a ? '<b>' + proz((a - z) / a) + ' unter</b>' : '<b>' + proz((z - a) / a) + ' über</b>') + ' dem Angebot (' + eurP(Math.abs(a - z)) + '/Stk).' : '';
+    var ka = ekZahl(w('karton').value), kp = ekZahl(w('kartonsPal').value);
+    if (!proPalHand) w('proPal').value = ka && kp ? komma(ka * kp) : (w('proPal').value && !(ka && kp) ? w('proPal').value : '');
+    var pp = ekZahl(w('proPal').value), t = [];
+    if (menge && ka) t.push(zahl(Math.round(menge / ka * 10) / 10) + ' Kartons');
+    if (menge && pp) t.push(zahl(Math.round(menge / pp * 100) / 100) + ' Paletten');
+    $('#ekPackHinweis', dr.el).textContent = t.length ? 'Menge ' + zahl(menge) + ' Stk = ' + t.join(' = ') : '';
   };
-  ['ek', 'menge', 'vk'].forEach(function (f) { w(f).oninput = kalk; }); kalk();
+  ['ek', 'zielEk', 'menge', 'vk', 'karton', 'kartonsPal'].forEach(function (f) { w(f).oninput = kalk; });
+  w('proPal').oninput = function () { proPalHand = !!this.value; kalk(); };
+  kalk();
   var link = function () { var u = ekLink(w('link').value); $('#ekLinkAuf', dr.el).style.visibility = u ? 'visible' : 'hidden'; $('#ekLinkAuf', dr.el).href = u || '#'; };
   w('link').oninput = link; link();
   var setzeBild = function (file) { bildVerkleinern(file).then(function (d) { bild = d; w('bild').value = ''; $('#ekBfV', dr.el).innerHTML = '<img src="' + d + '" style="width:100%;height:100%;object-fit:contain;border-radius:10px">'; }).catch(fehler); };
