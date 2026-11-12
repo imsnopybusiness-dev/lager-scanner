@@ -145,6 +145,7 @@
   .chips { display:flex; gap:6px; flex-wrap:wrap; }
   .chip { border:0; border-radius:99px; padding:5px 12px; background:var(--g3); color:var(--t); font-weight:500; cursor:pointer; font-size:13px; }
   .chip.an { background:var(--g); color:#fff; }
+  input.markiert { border-color:var(--o); box-shadow:0 0 0 3px var(--o2); }
   .hinweis-box { background:var(--g3); border-radius:10px; padding:9px 12px; margin-bottom:12px; font-size:13.5px; }
   .ek-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); gap:14px; }
   .ek-karte { border:1px solid var(--l); border-radius:12px; overflow:hidden; cursor:pointer; background:#fff; display:flex; flex-direction:column; }
@@ -202,7 +203,7 @@
 <div id="modalRoot"></div>
 
 <script>
-var APP_VERSION = '2026-11-12a';
+var APP_VERSION = '2026-11-12b';
 /* Selbst-Aktualisierung: holt die Seite ohne Cache und lädt neu, wenn es eine neuere Version gibt */
 (function () {
   function pruefen() {
@@ -1050,7 +1051,7 @@ SEITEN.einkauf = function (arg) {
     var offen = d.funde.filter(function (x) { return x.status === 'Neu' || x.status === 'Angefragt'; }).length;
     var angOffen = d.angebote.filter(function (x) { return x.status === 'Offen'; }).length;
     var neuText = { suche: '＋ Neue Suche', funde: '＋ Neues Fundstück', angebote: '＋ Angebot hochladen' }[bereich];
-    $('#main').innerHTML = kopf('Einkauf', 'Wonach wir suchen, was wir gefunden haben und was Lieferanten uns anbieten', '<button class="btn" id="ekNeu">' + neuText + '</button>') +
+    $('#main').innerHTML = kopf('Einkauf', 'Wonach wir suchen, was wir gefunden haben und was Lieferanten uns anbieten', (bereich === 'funde' ? '<button class="btn sek" id="ekMeekes" title="Link von meekestrade.com einfügen – Daten & Bild werden übernommen">⬇ Von Meekes holen</button>' : '') + '<button class="btn" id="ekNeu">' + neuText + '</button>') +
       '<div class="reiter">' +
       '<a href="#einkauf/suche"' + (bereich === 'suche' ? ' class="an"' : '') + '>🔎 Suchliste <span>' + aktiv + '</span></a>' +
       '<a href="#einkauf/funde"' + (bereich === 'funde' ? ' class="an"' : '') + '>🛒 Fundstücke <span>' + offen + '</span></a>' +
@@ -1083,7 +1084,8 @@ SEITEN.einkauf = function (arg) {
           (l2.length ? '<div class="ek-grid">' + l2.map(function (x) {
             var k = ekKalk(ekZahl(x.ek), ekZahl(x.menge), ekZahl(x.vk)), s = d.suche.filter(function (y) { return y.nr === x.suche; })[0];
             return '<div class="ek-karte" data-nr="' + esc(x.nr) + '"><div class="ek-bild">' + (x.bild ? '<img src="' + esc(x.bild) + '" alt="" loading="lazy">' : '<span>Kein Bild</span>') + statusBadge(x.status) + '</div>' +
-              '<div class="ek-text"><b>' + esc(x.artikel) + '</b><small>' + esc(ekLieferantName(x.lieferant) || 'Lieferant offen') + (s ? ' · zu „' + esc(s.was) + '“' : '') + '</small>' +
+              '<div class="ek-text"><b>' + esc(x.artikel) + '</b><small>' + esc(ekLieferantName(x.lieferant) || 'Lieferant offen') + (s ? ' · zu „' + esc(s.was) + '“' : '') +
+                ((x.ve !== '' && x.ve != null) || (x.lagerLief !== '' && x.lagerLief != null) ? '<br>' + [x.ve ? 'VE ' + zahl(x.ve) : '', x.lagerLief ? zahl(x.lagerLief) + ' auf Lager' : '', x.artnr ? 'Art. ' + esc(x.artnr) : ''].filter(String).join(' · ') : '') + '</small>' +
               '<div class="ek-zahlen"><div><small>EK/Stk</small>' + (x.ek === '' ? '–' : eurP(x.ek)) + '</div><div><small>Menge</small>' + zahl(x.menge) + '</div><div><small>Summe</small>' + (k.summe == null ? '–' : eur(k.summe)) + '</div>' +
               '<div><small>VK ca.</small>' + (x.vk === '' ? '–' : eurP(x.vk)) + '</div><div><small>Marge</small>' + (k.margeProz == null ? '–' : ekMargeTag(k.margeProz)) + '</div><div><small>Rohertrag</small>' + (k.ertrag == null ? '–' : eur(k.ertrag)) + '</div></div>' +
               (x.link ? '<a class="btn sek klein" href="' + esc(ekLink(x.link)) + '" target="_blank" rel="noopener" onclick="event.stopPropagation()">🔗 Zum Angebot</a>' : '') + '</div></div>';
@@ -1103,6 +1105,7 @@ SEITEN.einkauf = function (arg) {
       }
     };
     $('#ekQ').oninput = function () { ek.q = this.value; male(); };
+    if ($('#ekMeekes')) $('#ekMeekes').onclick = function () { ekMeekesDialog(filterSuche); };
     $('#ekNeu').onclick = function () { if (bereich === 'suche') ekSucheForm(null); else if (bereich === 'funde') ekFundForm(null, filterSuche); else ekAngebotForm(null); };
     maleChips(); male();
   }).catch(fehler);
@@ -1134,8 +1137,8 @@ function ekSucheForm(x) {
   if (!neu) ekLoeschenKnopf(dr, 'suche', x, x.was);
   setTimeout(function () { $('[data-f="was"]', dr.el).focus(); }, 50);
 }
-function ekFundForm(x, sucheNr) {
-  var neu = !x; x = x || { status: 'Neu', suche: sucheNr || '' };
+function ekFundForm(x, sucheNr, hinweis) {
+  var neu = !x || !x.nr; x = Object.assign({ status: 'Neu', suche: sucheNr || '' }, x || {});
   var bild = null, suchen = ek.daten.suche.filter(function (s) { return s.status !== 'Erledigt' || s.nr === x.suche; });
   var dr = drawer(neu ? 'Neues Fundstück' : 'Fundstück ' + esc(x.nr),
     '<div class="bildfeld" id="ekBf"><div class="vorschau" id="ekBfV">' + (x.bild ? '<img src="' + esc(x.bild) + '" style="width:100%;height:100%;object-fit:contain;border-radius:10px">' : 'Screenshot hierher ziehen oder einfügen (Strg/⌘+V)') + '</div>' +
@@ -1150,7 +1153,13 @@ function ekFundForm(x, sucheNr) {
     '<div class="feld"><label>VK geschätzt €/Stk</label><input data-f="vk" value="' + esc(komma(x.vk)) + '" inputmode="decimal"></div>' +
     '<div class="feld"><label>Gehört zur Suche</label><select data-f="suche">' + opt(suchen.map(function (s) { return { v: s.nr, t: s.was }; }), x.suche, '– keine –') + '</select></div>' +
     '<div class="feld voll"><div class="mini-stat" id="ekKalk" style="grid-template-columns:repeat(4,1fr);margin:0"></div></div>' +
+    '<div class="feld"><label>EAN</label><input data-f="ean" value="' + esc(x.ean || '') + '" inputmode="numeric"></div>' +
+    '<div class="feld"><label>Art.-Nr. beim Lieferanten</label><input data-f="artnr" value="' + esc(x.artnr || '') + '"></div>' +
+    '<div class="feld"><label>VE (Stk) / Mindestmenge</label><input data-f="ve" value="' + esc(komma(x.ve)) + '" inputmode="numeric"></div>' +
+    '<div class="feld"><label>Bestand beim Lieferanten</label><input data-f="lagerLief" value="' + esc(komma(x.lagerLief)) + '" inputmode="numeric"></div>' +
+    '<div class="feld voll"><label>Produktinfos</label><textarea data-f="infos" rows="4">' + esc(x.infos || '') + '</textarea></div>' +
     '<div class="feld voll"><label>Notiz</label><textarea data-f="notiz" placeholder="z. B. Mindestabnahme 1 Palette, Versand ab Polen">' + esc(x.notiz || '') + '</textarea></div></div>' + ekLieferantenListe(), ekFuss(!neu && x));
+  if (hinweis) $('.inhalt', dr.el).insertAdjacentHTML('afterbegin', '<div class="hinweis-box">' + hinweis + '</div>');
   $$('[data-zu]', dr.el).forEach(function (b) { b.onclick = dr.zu; });
   var w = function (f) { return $('[data-f="' + f + '"]', dr.el); };
   var kalk = function () {
@@ -1181,7 +1190,27 @@ function ekFundForm(x, sucheNr) {
     ekSpeichern(this, 'funde', d, dr, neu ? 'Fundstück gespeichert' : 'Gespeichert');
   };
   if (!neu) ekLoeschenKnopf(dr, 'funde', x, x.artikel);
-  setTimeout(function () { if (neu) w('artikel').focus(); }, 50);
+  setTimeout(function () { if (hinweis) { w('ek').focus(); w('ek').classList.add('markiert'); } else if (neu) w('artikel').focus(); }, 50);
+}
+function ekMeekesDialog(sucheNr) {
+  var m = modal('<header><h3>Artikel von Meekes holen</h3></header><div class="inhalt"><p class="grau" style="margin-top:0">Link der Produktseite von meekestrade.com einfügen. Name, Bild, EAN, Art.-Nr., VE, Lagerbestand und Produktinfos werden übernommen – den <b>Preis</b> zeigt Meekes nur mit Login, den trägst du selbst ein.</p>' +
+    '<div class="feld"><label>Meekes-Link</label><input id="mkUrl" placeholder="https://meekestrade.com/de/produkte/…" autocomplete="off"></div></div>' +
+    '<footer><button class="btn sek" data-zu>Abbrechen</button><button class="btn" id="mkOk">Daten holen</button></footer>');
+  var inp = $('#mkUrl', m.el);
+  setTimeout(function () { inp.focus(); }, 30);
+  if (navigator.clipboard && navigator.clipboard.readText) navigator.clipboard.readText().then(function (t) { if (/meekestrade\.com\//i.test(t) && !inp.value) inp.value = t.trim(); }).catch(function () {});
+  var los = function () {
+    var u = inp.value.trim();
+    if (!/meekestrade\.com\//i.test(u)) { toast('Bitte einen Link von meekestrade.com einfügen.', true); return; }
+    mitKnopf($('#mkOk', m.el), api('ek_meekes', { url: u })).then(function (d) {
+      var dop = ek.daten.funde.filter(function (f) { return (d.artnr && f.artnr === d.artnr && /meekes/i.test(ekLieferantName(f.lieferant))) || (d.ean && f.ean === d.ean) || f.link === d.link; })[0];
+      var weiter = function () { m.zu(); if (sucheNr) d.suche = sucheNr; ekFundForm(d, sucheNr, '✓ Von Meekes übernommen. Bitte noch den <b>EK-Preis</b> eintragen (bei Meekes eingeloggt sichtbar) und speichern.'); };
+      if (dop) frage('Schon vorhanden', '<p>Dieser Artikel ist schon als Fundstück <b>' + esc(dop.nr) + '</b> („' + esc(dop.artikel) + '“) gespeichert. Trotzdem neu anlegen?</p>', 'Trotzdem anlegen').then(function (ja) { if (ja) weiter(); });
+      else weiter();
+    }).catch(fehler);
+  };
+  $('#mkOk', m.el).onclick = los;
+  inp.onkeydown = function (ev) { if (ev.key === 'Enter') los(); };
 }
 function ekAngebotForm(x) {
   var neu = !x; x = x || { status: 'Offen', datum: heuteIso() };
