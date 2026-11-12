@@ -137,6 +137,29 @@
   .mini-stat div { background:var(--g3); border-radius:10px; padding:8px; text-align:center; }
   .mini-stat b { display:block; font-size:18px; }
   .mini-stat small { color:var(--m); font-size:12px; }
+  /* Einkauf */
+  .reiter { display:flex; gap:6px; margin-bottom:14px; flex-wrap:wrap; }
+  .reiter a { padding:9px 14px; border-radius:10px; background:var(--w); box-shadow:var(--sh); color:var(--t); text-decoration:none; font-weight:600; display:flex; align-items:center; gap:8px; }
+  .reiter a span { background:var(--g3); color:var(--m); border-radius:99px; padding:1px 8px; font-size:12px; }
+  .reiter a.an { background:var(--g); color:#fff; } .reiter a.an span { background:rgba(255,255,255,.2); color:#fff; }
+  .chips { display:flex; gap:6px; flex-wrap:wrap; }
+  .chip { border:0; border-radius:99px; padding:5px 12px; background:var(--g3); color:var(--t); font-weight:500; cursor:pointer; font-size:13px; }
+  .chip.an { background:var(--g); color:#fff; }
+  .hinweis-box { background:var(--g3); border-radius:10px; padding:9px 12px; margin-bottom:12px; font-size:13.5px; }
+  .ek-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); gap:14px; }
+  .ek-karte { border:1px solid var(--l); border-radius:12px; overflow:hidden; cursor:pointer; background:#fff; display:flex; flex-direction:column; }
+  .ek-karte:hover { box-shadow:0 0 0 2px var(--g2); }
+  .ek-bild { height:150px; background:var(--g3); position:relative; display:flex; align-items:center; justify-content:center; color:#9CA3AF; font-size:13px; }
+  .ek-bild img { width:100%; height:100%; object-fit:contain; }
+  .ek-bild .badge { position:absolute; top:8px; left:8px; }
+  .ek-text { padding:12px; display:flex; flex-direction:column; gap:8px; }
+  .ek-text > small { color:var(--m); margin-top:-6px; }
+  .ek-zahlen { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; font-size:13px; }
+  .ek-zahlen small { display:block; color:var(--m); font-size:11.5px; }
+  .ek-text .btn { align-self:flex-start; }
+  .b-Aktiv { background:var(--g2); color:var(--g); } .b-Erledigt { background:#F3F4F6; color:#4B5563; }
+  .b-Neu { background:var(--b2); color:var(--b); } .b-Angefragt { background:var(--o2); color:var(--o); } .b-Gekauft { background:#DCFCE7; color:#15803D; } .b-Verworfen { background:#F3F4F6; color:#6B7280; }
+  .p-Hoch { background:var(--r2); color:var(--r); } .p-Mittel { background:var(--o2); color:var(--o); } .p-Niedrig { background:#F3F4F6; color:#6B7280; }
   /* Toast & Laden */
   #toasts { position:fixed; right:20px; bottom:20px; display:flex; flex-direction:column; gap:8px; z-index:100; }
   .toast { background:#111827; color:#fff; padding:11px 16px; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.2); max-width:420px; font-size:13.5px; }
@@ -165,6 +188,7 @@
       <a href="#wareneingang" data-s="wareneingang"><span class="ico">🚚</span>Wareneingang</a>
       <a href="#kalkulation" data-s="kalkulation"><span class="ico">🧮</span>Kalkulation</a>
       <a href="#lieferanten" data-s="lieferanten"><span class="ico">🏭</span>Lieferanten</a>
+      <a href="#einkauf" data-s="einkauf"><span class="ico">🛍️</span>Einkauf</a>
       <div class="sep"></div>
       <a href="#sortiment" data-s="sortiment"><span class="ico">📋</span>Sortimentsliste</a>
       <a href="#liste" data-s="liste"><span class="ico">🗒️</span>Neutrale Liste</a>
@@ -178,7 +202,7 @@
 <div id="modalRoot"></div>
 
 <script>
-var APP_VERSION = '2026-11-11a';
+var APP_VERSION = '2026-11-12a';
 /* Selbst-Aktualisierung: holt die Seite ohne Cache und lädt neu, wenn es eine neuere Version gibt */
 (function () {
   function pruefen() {
@@ -998,6 +1022,190 @@ function sheetJs() {
   });
   return sheetJsLaden;
 }
+/* ============================ Einkauf: Suchliste · Fundstücke · Lieferanten-Angebote ============================ */
+var EK_STATUS = { suche: ['Aktiv', 'Erledigt'], funde: ['Neu', 'Angefragt', 'Gekauft', 'Verworfen'], angebote: ['Offen', 'Gekauft', 'Abgelehnt'] };
+var EK_PRIO = ['Hoch', 'Mittel', 'Niedrig'];
+var ek = { daten: null, q: '', st: { suche: 'Aktiv', funde: 'offen', angebote: 'Offen' } };
+function ekZahl(x) { var n = parseFloat(String(x == null ? '' : x).replace(/\s/g, '').replace(',', '.')); return isNaN(n) ? null : n; }
+function ekLink(u) { u = String(u || '').trim(); if (!u) return ''; return /^https?:\/\//i.test(u) ? u : 'https://' + u; }
+function ekLieferantName(x) { var l = ((ek.daten && ek.daten.lieferanten) || []).filter(function (y) { return y.nr === x; })[0]; return l ? l.firma : x; }
+function ekKalk(ek_, menge, vk) {
+  var o = { summe: null, margeStk: null, margeProz: null, ertrag: null };
+  if (ek_ != null && menge != null) o.summe = ek_ * menge;
+  if (ek_ != null && vk != null && vk > 0) { o.margeStk = vk - ek_; o.margeProz = (vk - ek_) / vk; if (menge != null) o.ertrag = o.margeStk * menge; }
+  return o;
+}
+function ekMargeTag(p) { if (p == null) return ''; var k = p >= 0.4 ? 'zahl-gut' : (p >= 0.2 ? 'zahl-knapp' : 'zahl-leer'); return '<span class="' + k + '">' + proz(p) + '</span>'; }
+function ekLieferantenListe() {
+  var s = {}; (ek.daten.lieferanten || []).forEach(function (l) { s[l.firma] = 1; });
+  ek.daten.funde.concat(ek.daten.angebote).forEach(function (x) { if (x.lieferant) s[x.lieferant] = 1; });
+  return '<datalist id="ekLief">' + Object.keys(s).sort().map(function (n) { return '<option value="' + esc(n) + '">'; }).join('') + '</datalist>';
+}
+
+SEITEN.einkauf = function (arg) {
+  var teile = String(arg || '').split('/'), bereich = ['suche', 'funde', 'angebote'].indexOf(teile[0]) >= 0 ? teile[0] : 'suche', filterSuche = bereich === 'funde' ? (teile[1] || '') : '';
+  api('ek_liste').then(function (d) {
+    ek.daten = d;
+    var aktiv = d.suche.filter(function (x) { return x.status !== 'Erledigt'; }).length;
+    var offen = d.funde.filter(function (x) { return x.status === 'Neu' || x.status === 'Angefragt'; }).length;
+    var angOffen = d.angebote.filter(function (x) { return x.status === 'Offen'; }).length;
+    var neuText = { suche: '＋ Neue Suche', funde: '＋ Neues Fundstück', angebote: '＋ Angebot hochladen' }[bereich];
+    $('#main').innerHTML = kopf('Einkauf', 'Wonach wir suchen, was wir gefunden haben und was Lieferanten uns anbieten', '<button class="btn" id="ekNeu">' + neuText + '</button>') +
+      '<div class="reiter">' +
+      '<a href="#einkauf/suche"' + (bereich === 'suche' ? ' class="an"' : '') + '>🔎 Suchliste <span>' + aktiv + '</span></a>' +
+      '<a href="#einkauf/funde"' + (bereich === 'funde' ? ' class="an"' : '') + '>🛒 Fundstücke <span>' + offen + '</span></a>' +
+      '<a href="#einkauf/angebote"' + (bereich === 'angebote' ? ' class="an"' : '') + '>📄 Lieferanten-Angebote <span>' + angOffen + '</span></a></div>' +
+      '<div class="karte"><div class="filter"><input type="search" id="ekQ" placeholder="Suchen …" value="' + esc(ek.q) + '"><div class="chips" id="ekSt"></div></div><div id="ekInhalt"></div></div>' + ekLieferantenListe();
+    var chips = bereich === 'funde' ? [['offen', 'Offen'], ['Neu', 'Neu'], ['Angefragt', 'Angefragt'], ['Gekauft', 'Gekauft'], ['Verworfen', 'Verworfen'], ['', 'Alle']]
+      : EK_STATUS[bereich].map(function (s) { return [s, s]; }).concat([['', 'Alle']]);
+    var maleChips = function () { $('#ekSt').innerHTML = chips.map(function (c) { return '<button class="chip' + (ek.st[bereich] === c[0] ? ' an' : '') + '" data-st="' + esc(c[0]) + '">' + esc(c[1]) + '</button>'; }).join('');
+      $$('#ekSt .chip').forEach(function (b) { b.onclick = function () { ek.st[bereich] = b.dataset.st; maleChips(); male(); }; }); };
+    var passt = function (x) { var q = ek.q.toLowerCase(); return !q || JSON.stringify(x).toLowerCase().indexOf(q) >= 0; };
+    var male = function () {
+      var st = ek.st[bereich], el = $('#ekInhalt');
+      if (bereich === 'suche') {
+        var l = d.suche.filter(function (x) { return passt(x) && (!st || x.status === st); });
+        l.sort(function (a, b) { return EK_PRIO.indexOf(a.prio) - EK_PRIO.indexOf(b.prio); });
+        el.innerHTML = l.length ? '<div class="tab-wrap"><table><thead><tr><th>Priorität</th><th>Was suchen wir?</th><th class="z">Zielpreis EK</th><th class="z">Wunschmenge</th><th class="z">Fundstücke</th><th>Angelegt</th><th>Status</th><th></th></tr></thead><tbody>' +
+          l.map(function (x) {
+            var n = d.funde.filter(function (f) { return f.suche === x.nr; }).length;
+            return '<tr class="klick" data-nr="' + esc(x.nr) + '"><td><span class="badge p-' + esc(x.prio) + '">' + esc(x.prio || '–') + '</span></td><td><b>' + esc(x.was) + '</b>' + (x.notiz ? '<br><small class="grau">' + esc(x.notiz) + '</small>' : '') + '</td>' +
+              '<td class="z">' + (x.zielpreis === '' ? '–' : eurP(x.zielpreis)) + '</td><td class="z">' + zahl(x.menge) + '</td>' +
+              '<td class="z">' + (n ? '<a href="#einkauf/funde/' + esc(x.nr) + '" onclick="event.stopPropagation()">' + n + ' ansehen</a>' : '<span class="grau">0</span>') + '</td>' +
+              '<td>' + datum(x.datum) + '</td><td>' + statusBadge(x.status) + '</td><td><button class="btn sek klein" data-fund="' + esc(x.nr) + '">＋ Fundstück</button></td></tr>';
+          }).join('') + '</tbody></table></div>' : '<div class="leerstand">' + (d.suche.length ? 'Nichts gefunden.' : 'Noch nichts auf der Suchliste. Tragt ein, wonach ihr Ausschau haltet – z. B. „Pflanzstäbe Bambus, max. 0,10 €/Stk“.') + '</div>';
+        $$('tr[data-nr]', el).forEach(function (tr) { tr.onclick = function (ev) { if (ev.target.closest('button,a')) return; ekSucheForm(d.suche.filter(function (x) { return x.nr === tr.dataset.nr; })[0]); }; });
+        $$('[data-fund]', el).forEach(function (b) { b.onclick = function () { ekFundForm(null, b.dataset.fund); }; });
+      } else if (bereich === 'funde') {
+        var l2 = d.funde.filter(function (x) { return passt(x) && (!filterSuche || x.suche === filterSuche) && (st === 'offen' ? (x.status === 'Neu' || x.status === 'Angefragt') : (!st || x.status === st)); });
+        var such = filterSuche ? d.suche.filter(function (s) { return s.nr === filterSuche; })[0] : null;
+        el.innerHTML = (filterSuche ? '<div class="hinweis-box">Nur Fundstücke zur Suche <b>' + esc(such ? such.was : filterSuche) + '</b> · <a href="#einkauf/funde">alle zeigen</a></div>' : '') +
+          (l2.length ? '<div class="ek-grid">' + l2.map(function (x) {
+            var k = ekKalk(ekZahl(x.ek), ekZahl(x.menge), ekZahl(x.vk)), s = d.suche.filter(function (y) { return y.nr === x.suche; })[0];
+            return '<div class="ek-karte" data-nr="' + esc(x.nr) + '"><div class="ek-bild">' + (x.bild ? '<img src="' + esc(x.bild) + '" alt="" loading="lazy">' : '<span>Kein Bild</span>') + statusBadge(x.status) + '</div>' +
+              '<div class="ek-text"><b>' + esc(x.artikel) + '</b><small>' + esc(ekLieferantName(x.lieferant) || 'Lieferant offen') + (s ? ' · zu „' + esc(s.was) + '“' : '') + '</small>' +
+              '<div class="ek-zahlen"><div><small>EK/Stk</small>' + (x.ek === '' ? '–' : eurP(x.ek)) + '</div><div><small>Menge</small>' + zahl(x.menge) + '</div><div><small>Summe</small>' + (k.summe == null ? '–' : eur(k.summe)) + '</div>' +
+              '<div><small>VK ca.</small>' + (x.vk === '' ? '–' : eurP(x.vk)) + '</div><div><small>Marge</small>' + (k.margeProz == null ? '–' : ekMargeTag(k.margeProz)) + '</div><div><small>Rohertrag</small>' + (k.ertrag == null ? '–' : eur(k.ertrag)) + '</div></div>' +
+              (x.link ? '<a class="btn sek klein" href="' + esc(ekLink(x.link)) + '" target="_blank" rel="noopener" onclick="event.stopPropagation()">🔗 Zum Angebot</a>' : '') + '</div></div>';
+          }).join('') + '</div>' : '<div class="leerstand">' + (d.funde.length ? 'Nichts gefunden.' : 'Noch keine Fundstücke. Wenn ihr online oder beim Lieferanten etwas Interessantes seht: Link, Preis und Screenshot hier ablegen.') + '</div>');
+        $$('.ek-karte', el).forEach(function (c) { c.onclick = function () { ekFundForm(d.funde.filter(function (x) { return x.nr === c.dataset.nr; })[0]); }; });
+      } else {
+        var heute = heuteIso();
+        var l3 = d.angebote.filter(function (x) { return passt(x) && (!st || x.status === st); });
+        el.innerHTML = l3.length ? '<div class="tab-wrap"><table><thead><tr><th>Eingang</th><th>Lieferant</th><th>Titel / Inhalt</th><th>Gültig bis</th><th>Status</th><th></th></tr></thead><tbody>' +
+          l3.map(function (x) {
+            var ab = x.gueltig && x.gueltig < heute && x.status === 'Offen';
+            return '<tr class="klick" data-nr="' + esc(x.nr) + '"><td>' + datum(x.datum) + '</td><td><b>' + esc(ekLieferantName(x.lieferant)) + '</b></td><td>' + esc(x.titel) + (x.notiz ? '<br><small class="grau">' + esc(x.notiz) + '</small>' : '') + '</td>' +
+              '<td' + (ab ? ' class="zahl-leer" title="abgelaufen"' : '') + '>' + (datum(x.gueltig) || '–') + '</td><td>' + statusBadge(x.status) + '</td>' +
+              '<td>' + (x.pdf ? '<a class="btn sek klein" href="' + esc(x.pdf) + '" target="_blank" rel="noopener" onclick="event.stopPropagation()">📄 PDF öffnen</a>' : '<span class="grau">kein PDF</span>') + '</td></tr>';
+          }).join('') + '</tbody></table></div>' : '<div class="leerstand">' + (d.angebote.length ? 'Nichts gefunden.' : 'Noch keine Angebote. Restposten-Listen und Angebote von Lieferanten hier als PDF hochladen.') + '</div>';
+        $$('tr[data-nr]', el).forEach(function (tr) { tr.onclick = function (ev) { if (ev.target.closest('a')) return; ekAngebotForm(d.angebote.filter(function (x) { return x.nr === tr.dataset.nr; })[0]); }; });
+      }
+    };
+    $('#ekQ').oninput = function () { ek.q = this.value; male(); };
+    $('#ekNeu').onclick = function () { if (bereich === 'suche') ekSucheForm(null); else if (bereich === 'funde') ekFundForm(null, filterSuche); else ekAngebotForm(null); };
+    maleChips(); male();
+  }).catch(fehler);
+};
+function ekFuss(x) { return (x ? '<button class="btn rot" id="ekWeg" style="margin-right:auto">Löschen</button>' : '') + '<button class="btn sek" data-zu>Abbrechen</button><button class="btn" id="ekOk">Speichern</button>'; }
+function ekWerte(dr) { var o = {}; $$('[data-f]', dr.el).forEach(function (i) { o[i.dataset.f] = i.value; }); return o; }
+function ekSpeichern(btn, bereich, daten, dr, text) {
+  return mitKnopf(btn, api('ek_speichern', { bereich: bereich, daten: daten })).then(function (r) { toast(text + ' (' + r.nr + ')'); dr.zu(); route(); return r; }).catch(fehler);
+}
+function ekLoeschenKnopf(dr, bereich, x, name) {
+  var b = $('#ekWeg', dr.el); if (!b) return;
+  b.onclick = function () {
+    frage('Wirklich löschen?', '<p>' + esc(name) + ' wird aus der Liste entfernt.' + (x.pdf || x.bild ? ' Die Datei in Google Drive bleibt erhalten.' : '') + '</p>', 'Löschen', true).then(function (ja) {
+      if (ja) mitKnopf(b, api('ek_loeschen', { bereich: bereich, nr: x.nr })).then(function () { toast('Gelöscht.'); dr.zu(); route(); }).catch(fehler);
+    });
+  };
+}
+function ekSucheForm(x) {
+  var neu = !x; x = x || { prio: 'Mittel', status: 'Aktiv' };
+  var dr = drawer(neu ? 'Neue Suche' : 'Suche bearbeiten', '<p class="grau" style="margin-top:0">Was wollt ihr einkaufen, wenn es günstig auftaucht?</p><div class="fg">' +
+    '<div class="feld voll"><label>Was suchen wir? *</label><input data-f="was" value="' + esc(x.was || '') + '" placeholder="z. B. Pflanzstäbe Bambus 60–120 cm"></div>' +
+    '<div class="feld"><label>Zielpreis EK/Stk (max.)</label><input data-f="zielpreis" value="' + esc(komma(x.zielpreis)) + '" inputmode="decimal" placeholder="0,10"></div>' +
+    '<div class="feld"><label>Wunschmenge (Stk)</label><input data-f="menge" value="' + esc(komma(x.menge)) + '" inputmode="numeric"></div>' +
+    '<div class="feld"><label>Priorität</label><select data-f="prio">' + opt(EK_PRIO, x.prio) + '</select></div>' +
+    '<div class="feld"><label>Status</label><select data-f="status">' + opt(EK_STATUS.suche, x.status) + '</select></div>' +
+    '<div class="feld voll"><label>Notiz</label><textarea data-f="notiz" placeholder="z. B. für Gartencenter Frühjahr, nur mit EAN">' + esc(x.notiz || '') + '</textarea></div></div>', ekFuss(!neu && x));
+  $$('[data-zu]', dr.el).forEach(function (b) { b.onclick = dr.zu; });
+  $('#ekOk', dr.el).onclick = function () { var d = ekWerte(dr); if (!neu) d.nr = x.nr; ekSpeichern(this, 'suche', d, dr, neu ? 'Auf die Suchliste gesetzt' : 'Gespeichert'); };
+  if (!neu) ekLoeschenKnopf(dr, 'suche', x, x.was);
+  setTimeout(function () { $('[data-f="was"]', dr.el).focus(); }, 50);
+}
+function ekFundForm(x, sucheNr) {
+  var neu = !x; x = x || { status: 'Neu', suche: sucheNr || '' };
+  var bild = null, suchen = ek.daten.suche.filter(function (s) { return s.status !== 'Erledigt' || s.nr === x.suche; });
+  var dr = drawer(neu ? 'Neues Fundstück' : 'Fundstück ' + esc(x.nr),
+    '<div class="bildfeld" id="ekBf"><div class="vorschau" id="ekBfV">' + (x.bild ? '<img src="' + esc(x.bild) + '" style="width:100%;height:100%;object-fit:contain;border-radius:10px">' : 'Screenshot hierher ziehen oder einfügen (Strg/⌘+V)') + '</div>' +
+    '<div><button class="btn sek klein" id="ekBfW">Bild auswählen …</button><input type="file" accept="image/*" id="ekBfF" class="hidden"><div class="grau" style="font-size:12px;margin-top:6px">Oder Bild-Link (URL):</div><input data-f="bild" style="margin-top:4px" placeholder="https://…" value="' + esc(x.bild || '') + '"></div></div>' +
+    '<div class="fg">' +
+    '<div class="feld voll"><label>Artikel *</label><input data-f="artikel" value="' + esc(x.artikel || '') + '" placeholder="z. B. Bambusstab 90 cm, 10er Bund"></div>' +
+    '<div class="feld"><label>Lieferant / Shop</label><input data-f="lieferant" list="ekLief" value="' + esc(ekLieferantName(x.lieferant) || '') + '" placeholder="Auswählen oder eintippen"></div>' +
+    '<div class="feld"><label>Status</label><select data-f="status">' + opt(EK_STATUS.funde, x.status) + '</select></div>' +
+    '<div class="feld voll"><label>Link zum Angebot</label><div style="display:flex;gap:8px"><input data-f="link" value="' + esc(x.link || '') + '" placeholder="https://…"><a class="btn sek" id="ekLinkAuf" target="_blank" rel="noopener">Öffnen</a></div></div>' +
+    '<div class="feld"><label>EK netto €/Stk</label><input data-f="ek" value="' + esc(komma(x.ek)) + '" inputmode="decimal"></div>' +
+    '<div class="feld"><label>Menge (Stk)</label><input data-f="menge" value="' + esc(komma(x.menge)) + '" inputmode="numeric"></div>' +
+    '<div class="feld"><label>VK geschätzt €/Stk</label><input data-f="vk" value="' + esc(komma(x.vk)) + '" inputmode="decimal"></div>' +
+    '<div class="feld"><label>Gehört zur Suche</label><select data-f="suche">' + opt(suchen.map(function (s) { return { v: s.nr, t: s.was }; }), x.suche, '– keine –') + '</select></div>' +
+    '<div class="feld voll"><div class="mini-stat" id="ekKalk" style="grid-template-columns:repeat(4,1fr);margin:0"></div></div>' +
+    '<div class="feld voll"><label>Notiz</label><textarea data-f="notiz" placeholder="z. B. Mindestabnahme 1 Palette, Versand ab Polen">' + esc(x.notiz || '') + '</textarea></div></div>' + ekLieferantenListe(), ekFuss(!neu && x));
+  $$('[data-zu]', dr.el).forEach(function (b) { b.onclick = dr.zu; });
+  var w = function (f) { return $('[data-f="' + f + '"]', dr.el); };
+  var kalk = function () {
+    var k = ekKalk(ekZahl(w('ek').value), ekZahl(w('menge').value), ekZahl(w('vk').value));
+    $('#ekKalk', dr.el).innerHTML = '<div><b>' + (k.summe == null ? '–' : eur(k.summe)) + '</b><small>Einkauf gesamt</small></div><div><b>' + (k.margeStk == null ? '–' : eurP(k.margeStk)) + '</b><small>Marge/Stk</small></div>' +
+      '<div><b>' + (k.margeProz == null ? '–' : ekMargeTag(k.margeProz)) + '</b><small>Marge %</small></div><div><b>' + (k.ertrag == null ? '–' : eur(k.ertrag)) + '</b><small>Rohertrag</small></div>';
+  };
+  ['ek', 'menge', 'vk'].forEach(function (f) { w(f).oninput = kalk; }); kalk();
+  var link = function () { var u = ekLink(w('link').value); $('#ekLinkAuf', dr.el).style.visibility = u ? 'visible' : 'hidden'; $('#ekLinkAuf', dr.el).href = u || '#'; };
+  w('link').oninput = link; link();
+  var setzeBild = function (file) { bildVerkleinern(file).then(function (d) { bild = d; w('bild').value = ''; $('#ekBfV', dr.el).innerHTML = '<img src="' + d + '" style="width:100%;height:100%;object-fit:contain;border-radius:10px">'; }).catch(fehler); };
+  $('#ekBfW', dr.el).onclick = function () { $('#ekBfF', dr.el).click(); };
+  $('#ekBfF', dr.el).onchange = function () { if (this.files[0]) setzeBild(this.files[0]); };
+  var bf = $('#ekBf', dr.el);
+  bf.ondragover = function (ev) { ev.preventDefault(); bf.classList.add('drag'); };
+  bf.ondragleave = function () { bf.classList.remove('drag'); };
+  bf.ondrop = function (ev) { ev.preventDefault(); bf.classList.remove('drag'); var f = ev.dataTransfer.files[0]; if (f && /^image\//.test(f.type)) setzeBild(f); };
+  var einfuegen = function (ev) {
+    if (!document.body.contains(dr.el)) { document.removeEventListener('paste', einfuegen); return; }
+    var it = Array.prototype.slice.call((ev.clipboardData || {}).items || []).filter(function (i) { return /^image\//.test(i.type); })[0];
+    if (it) { ev.preventDefault(); setzeBild(it.getAsFile()); toast('Screenshot übernommen.'); }
+  };
+  document.addEventListener('paste', einfuegen);
+  $('#ekOk', dr.el).onclick = function () {
+    var d = ekWerte(dr); if (!neu) d.nr = x.nr;
+    var lf = (ek.daten.lieferanten || []).filter(function (l) { return l.firma === d.lieferant; })[0]; if (lf) d.lieferant = lf.nr;
+    if (bild) d.bildDatei = bild;
+    ekSpeichern(this, 'funde', d, dr, neu ? 'Fundstück gespeichert' : 'Gespeichert');
+  };
+  if (!neu) ekLoeschenKnopf(dr, 'funde', x, x.artikel);
+  setTimeout(function () { if (neu) w('artikel').focus(); }, 50);
+}
+function ekAngebotForm(x) {
+  var neu = !x; x = x || { status: 'Offen', datum: heuteIso() };
+  var dr = drawer(neu ? 'Angebot hochladen' : 'Angebot ' + esc(x.nr),
+    '<div class="feld"><label>PDF / Datei' + (neu ? ' *' : '') + '</label>' + (x.pdf ? '<div style="margin-bottom:6px"><a href="' + esc(x.pdf) + '" target="_blank" rel="noopener">📄 Aktuelle Datei öffnen</a></div>' : '') +
+    '<input type="file" id="ekPdf" accept="application/pdf,image/*,.xlsx,.xls,.csv,.docx"><div class="grau" style="font-size:12px;margin-top:4px">' + (x.pdf ? 'Neue Datei wählen, um sie zu ersetzen. ' : '') + 'Wird in Google Drive unter „Warenwirtschaft PDFs / Einkauf – Lieferanten-Angebote“ abgelegt.</div></div>' +
+    '<div class="fg">' +
+    '<div class="feld"><label>Lieferant *</label><input data-f="lieferant" list="ekLief" value="' + esc(ekLieferantName(x.lieferant) || '') + '" placeholder="Auswählen oder eintippen"></div>' +
+    '<div class="feld"><label>Status</label><select data-f="status">' + opt(EK_STATUS.angebote, x.status) + '</select></div>' +
+    '<div class="feld voll"><label>Titel / Inhalt</label><input data-f="titel" value="' + esc(x.titel || '') + '" placeholder="z. B. Restposten Gartendeko KW 46"></div>' +
+    '<div class="feld"><label>Eingang</label><input type="date" data-f="datum" value="' + esc(x.datum || '') + '"></div>' +
+    '<div class="feld"><label>Gültig bis</label><input type="date" data-f="gueltig" value="' + esc(x.gueltig || '') + '"></div>' +
+    '<div class="feld voll"><label>Notiz</label><textarea data-f="notiz" placeholder="z. B. interessant: Pos. 12–18, Preis verhandeln">' + esc(x.notiz || '') + '</textarea></div></div>' + ekLieferantenListe(), ekFuss(!neu && x));
+  $$('[data-zu]', dr.el).forEach(function (b) { b.onclick = dr.zu; });
+  $('#ekOk', dr.el).onclick = function () {
+    var btn = this, d = ekWerte(dr), f = $('#ekPdf', dr.el).files[0]; if (!neu) d.nr = x.nr;
+    var lf = (ek.daten.lieferanten || []).filter(function (l) { return l.firma === d.lieferant; })[0]; if (lf) d.lieferant = lf.nr;
+    if (neu && !f) { toast('Bitte eine Datei auswählen.', true); return; }
+    if (!f && !d.titel) { d.titel = d.titel || ''; }
+    (f ? dateiAlsDataUrl(f) : Promise.resolve('')).then(function (u) { if (u) d.pdfDatei = u; if (u && !d.titel) d.titel = f.name.replace(/\.[^.]+$/, ''); return ekSpeichern(btn, 'angebote', d, dr, neu ? 'Angebot abgelegt' : 'Gespeichert'); }).catch(fehler);
+  };
+  if (!neu) ekLoeschenKnopf(dr, 'angebote', x, x.titel || x.nr);
+}
+
 /* ============================ Eigenes Angebot importieren (Beschaffung, BA-…) ============================ */
 function dateiAlsDataUrl(f) {
   return new Promise(function (ok, nein) {
