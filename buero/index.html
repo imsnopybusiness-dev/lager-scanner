@@ -222,7 +222,7 @@
 <div id="modalRoot"></div>
 
 <script>
-var APP_VERSION = '2026-11-13a';
+var APP_VERSION = '2026-11-13b';
 /* Selbst-Aktualisierung: holt die Seite ohne Cache und lädt neu, wenn es eine neuere Version gibt */
 (function () {
   function pruefen() {
@@ -1306,7 +1306,9 @@ function ekAngebotForm(x) {
 var SL_SPALTEN = [
   ['ean', /\b(ean|gtin|barcode|ean[- ]?code|upc)\b/i],
   ['artnr', /\b(art\.?[- ]?nr|artikelnummer|item ?no|sku|article ?no|ref)\b/i],
-  ['text', /(description|beschreibung|bezeichnung|omschrijving|artikel|product ?name|produkt|item)/i],
+  ['text', /(description|beschreibung|bezeichnung|omschrijving|artikel|product ?name|produkt|item|^\s*name\s*$|title|titel)/i],
+  ['moq', /(moq|min\.? ?order|mindestmenge|min\.? ?qty)/i],
+  ['verfueg', /(availab|verfügbarkeit|lieferbar|status)/i],
   ['bestand', /(stock|bestand|voorraad|available|verfügbar|menge|qty$|quantity$)/i],
   ['karton', /(qty ?\/ ?ctn|per ?ctn|karton|carton|doos|ve\b|pcs ?\/ ?ctn|inner)/i],
   ['palette', /(pallet|palette|pal\.?)/i],
@@ -1351,7 +1353,8 @@ function slZeileFertig(r) {
   var v = slVerpackung(r.karton, r.palette);
   var ean = String(r.ean || '').replace(/\D/g, '');
   return { ean: ean, artnr: String(r.artnr || '').trim(), text: String(r.text || '').replace(/\s+/g, ' ').trim(), bestand: slZahl(r.bestand), preis: slZahl(r.preis),
-    karton: v.karton, kartonsPal: v.kartonsPal, proPal: v.proPal, verpackung: [r.karton, r.palette].filter(function (x) { return String(x || '').trim(); }).join(' · ').replace(/\s+/g, ' ').trim(), bild: r.bild || '' };
+    karton: v.karton, kartonsPal: v.kartonsPal, proPal: v.proPal, bild: r.bild || '',
+    verpackung: [r.karton, r.palette, String(r.moq || '').trim() ? 'MOQ ' + r.moq : '', r.verfueg].filter(function (x) { return String(x || '').trim(); }).join(' · ').replace(/\s+/g, ' ').trim() };
 }
 var pdfjsLadung = null;
 function pdfjsLaden() {
@@ -1454,14 +1457,93 @@ function slAusTabelle(buf, name) {
   });
 }
 
+var jszipLadung = null;
+function jszipLaden() {
+  if (window.JSZip) return Promise.resolve(window.JSZip);
+  if (!jszipLadung) jszipLadung = new Promise(function (ok, nein) {
+    var sc = document.createElement('script'); sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+    sc.onload = function () { ok(window.JSZip); }; sc.onerror = function () { jszipLadung = null; nein(new Error('Zip-Modul konnte nicht geladen werden – Internet prüfen.')); };
+    document.head.appendChild(sc);
+  });
+  return jszipLadung;
+}
+// Excel (.xlsx) direkt aus dem Zip lesen – inkl. eingebetteter Bilder je Zeile
+async function slAusXlsx(buf, fortschritt) {
+  var JSZip = await jszipLaden(), zip = await JSZip.loadAsync(buf), dp = new DOMParser();
+  var xml = async function (p) { var f = zip.file(p); return f ? dp.parseFromString(await f.async('string'), 'application/xml') : null; };
+  var tags = function (doc, name) { return doc ? Array.prototype.slice.call(doc.getElementsByTagNameNS('*', name)) : []; };
+  var rels = async function (p) {
+    var teile = p.split('/'), datei = teile.pop(), r = await xml(teile.concat(['_rels', datei + '.rels']).join('/')), o = {};
+    tags(r, 'Relationship').forEach(function (e) { var t = e.getAttribute('Target'), basis = teile.slice(); if (t.charAt(0) === '/') { o[e.getAttribute('Id')] = t.slice(1); return; }
+      t.split('/').forEach(function (s) { if (s === '..') basis.pop(); else if (s !== '.') basis.push(s); }); o[e.getAttribute('Id')] = basis.join('/'); });
+    return o;
+  };
+  var ss = tags(await xml('xl/sharedStrings.xml'), 'si').map(function (si) { return tags(si, 't').map(function (t) { return t.textContent; }).join(''); });
+  var spNr = function (ref) { var m = ref.match(/^([A-Z]+)(\d+)$/), c = 0; for (var i = 0; i < m[1].length; i++) c = c * 26 + m[1].charCodeAt(i) - 64; return [c - 1, Number(m[2]) - 1]; };
+  var wbRels = await rels('xl/workbook.xml'), blaetter = tags(await xml('xl/workbook.xml'), 'sheet');
+  for (var b = 0; b < blaetter.length; b++) {
+    var rid = blaetter[b].getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id') || blaetter[b].getAttribute('r:id');
+    var pfad = wbRels[rid]; if (!pfad) continue;
+    var doc = await xml(pfad), zeilen = {};
+    tags(doc, 'c').forEach(function (c) {
+      var pos = spNr(c.getAttribute('r')), t = c.getAttribute('t'), v = tags(c, 'v')[0], w;
+      if (t === 's') w = v ? ss[Number(v.textContent)] : ''; else if (t === 'inlineStr') w = tags(c, 't').map(function (x) { return x.textContent; }).join(''); else w = v ? v.textContent : '';
+      (zeilen[pos[1]] = zeilen[pos[1]] || [])[pos[0]] = w;
+    });
+    var nummern = Object.keys(zeilen).map(Number).sort(function (x, y) { return x - y; }), kopfR = -1, z = null;
+    for (var i = 0; i < nummern.length && i < 40; i++) { var zz = slZuordnen(zeilen[nummern[i]] || []); if (Object.keys(zz).length >= 3 && (zz.ean != null || zz.text != null)) { kopfR = nummern[i]; z = zz; break; } }
+    if (kopfR < 0) continue;
+    // Bilder: Zeichnung des Blatts → Anker (Zeile/Spalte) → Bilddatei
+    var bilder = {}, sRels = await rels(pfad);
+    for (var k in sRels) {
+      if (!/drawings\/drawing\d+\.xml$/.test(sRels[k])) continue;
+      var dr = await xml(sRels[k]), dRels = await rels(sRels[k]);
+      tags(dr, 'twoCellAnchor').concat(tags(dr, 'oneCellAnchor')).forEach(function (a) {
+        var von = tags(a, 'from')[0], blip = tags(a, 'blip')[0]; if (!von || !blip) return;
+        var col = Number(tags(von, 'col')[0].textContent), row = Number(tags(von, 'row')[0].textContent);
+        var emb = blip.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'embed') || blip.getAttribute('r:embed');
+        if (dRels[emb]) (bilder[row] = bilder[row] || {})[col] = dRels[emb];
+      });
+    }
+    var daten = nummern.filter(function (n) { return n > kopfR; }).map(function (n) { var r = zeilen[n], o = { _r: n }; Object.keys(z).forEach(function (k) { o[k] = r[z[k]] == null ? '' : r[z[k]]; }); return o; })
+      .filter(function (o) { return String(o.ean || '').replace(/\D/g, '').length >= 8 || (String(o.text || '').trim() && String(o.preis || '').trim()); });
+    var cache = {};
+    for (var j = 0; j < daten.length; j++) {
+      if (fortschritt && j % 20 === 0) fortschritt(j, daten.length);
+      var bz = bilder[daten[j]._r] || {}, ziel = z.bild != null ? (bz[z.bild] || bz[z.bild + 1]) : null;
+      if (!ziel && z.bild == null) { var spalten = Object.keys(bz).map(Number).sort(function (x, y) { return x - y; }); ziel = spalten.length ? bz[spalten[0]] : null; }
+      if (ziel) { if (!(ziel in cache)) cache[ziel] = await slBildVerkleinern(await zip.file(ziel).async('blob')); daten[j].bild = cache[ziel]; }
+    }
+    return { zeilen: daten.map(slZeileFertig), kopf: zeilen[kopfR], spalten: Object.keys(z), blatt: blaetter[b].getAttribute('name') };
+  }
+  throw new Error('In der Excel-Datei wurde keine Tabelle mit Kopfzeile (EAN, Name/Beschreibung, Preis …) gefunden.');
+}
+function slBildVerkleinern(blob) {
+  return new Promise(function (ok) {
+    var url = URL.createObjectURL(blob), im = new Image();
+    im.onload = function () {
+      var f = Math.min(1, 400 / Math.max(im.width, im.height)), c = document.createElement('canvas'); c.width = Math.max(1, Math.round(im.width * f)); c.height = Math.max(1, Math.round(im.height * f));
+      var g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.imageSmoothingQuality = 'high'; g.drawImage(im, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url); var u = c.toDataURL('image/jpeg', 0.82); ok(u.length < 45000 ? u : c.toDataURL('image/jpeg', 0.6));
+    };
+    im.onerror = function () { URL.revokeObjectURL(url); ok(''); };
+    im.src = url;
+  });
+}
+
 function slLesbar(name, mime) { return /\.(pdf|xlsx|xls|csv)$/i.test(name || '') || /pdf|spreadsheet|excel|csv/i.test(mime || ''); }
-function slAuslesen(buf, name, mime, fortschritt) { return (/\.pdf$/i.test(name || '') || /pdf/i.test(mime || '')) ? slAusPdf(buf, fortschritt) : slAusTabelle(buf, name); }
+function slAuslesen(buf, name, mime, fortschritt) {
+  var k = new Uint8Array(buf.slice(0, 4)), magie = String.fromCharCode(k[0], k[1], k[2], k[3]);
+  if (magie === '%PDF') return slAusPdf(buf, fortschritt);
+  if (magie.slice(0, 2) === 'PK') return slAusXlsx(buf, function (i, n) { if (fortschritt) fortschritt(i, n, 'Bilder'); }).catch(function (e) { console.warn(e); return slAusTabelle(buf, name); });
+  return slAusTabelle(buf, name);
+}
 function b64ZuBuffer(b64) { var bin = atob(b64), u = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u.buffer; }
 // Datei auslesen → Vorschau → Positionen speichern → Angebot anzeigen
 function slStarten(nr, buf, name, mime) {
   var m = modal('<header><h3>Stockliste wird ausgelesen …</h3></header><div class="inhalt"><p id="slFort" class="grau">Datei wird geöffnet …</p></div>');
   return Promise.resolve().then(function () {
-    return slAuslesen(buf, name, mime, function (s, n) { var e = $('#slFort', m.el); if (e) e.textContent = 'Seite ' + s + ' von ' + n + ' …'; });
+    return slAuslesen(buf, name, mime, function (s, n, art) { var e = $('#slFort', m.el); if (e) e.textContent = art ? 'Bilder ' + s + ' von ' + n + ' …' : 'Seite ' + s + ' von ' + n + ' …'; });
   }).then(function (res) {
     m.zu();
     if (!res.zeilen.length) { toast('In der Datei wurden keine Artikelzeilen erkannt (keine Kopfzeile mit EAN/Beschreibung/Preis gefunden).', true); location.hash = '#einkauf/angebot/' + nr; return; }
@@ -1470,7 +1552,7 @@ function slStarten(nr, buf, name, mime) {
 }
 function slVorschau(nr, res) {
   var z = res.zeilen, ohne = function (k) { return z.filter(function (x) { return x[k] === '' || x[k] == null; }).length; };
-  var namen = { ean: 'EAN', artnr: 'Art.-Nr.', text: 'Beschreibung', bestand: 'Bestand', karton: 'Stk/Karton', palette: 'Palette', preis: 'Preis', bild: 'Bild' };
+  var namen = { ean: 'EAN', artnr: 'Art.-Nr.', text: 'Beschreibung', bestand: 'Bestand', karton: 'Stk/Karton', palette: 'Palette', preis: 'Preis', bild: 'Bild', moq: 'MOQ', verfueg: 'Verfügbarkeit' };
   var warn = [['preis', 'ohne Preis'], ['ean', 'ohne EAN'], ['bestand', 'ohne Bestand'], ['bild', 'ohne Bild']].map(function (w) { var n = ohne(w[0]); return n ? n + ' ' + w[1] : ''; }).filter(String);
   var m = modal('<header><h3>' + z.length + ' Artikel erkannt</h3></header><div class="inhalt">' +
     '<p style="margin-top:0">Erkannte Spalten: <b>' + res.spalten.map(function (k) { return namen[k] || k; }).join(' · ') + '</b>' + (warn.length ? '<br><span class="grau">' + warn.join(' · ') + '</span>' : '') + '</p>' +
@@ -1500,7 +1582,11 @@ function slVorschau(nr, res) {
 
 /* Angebot-Ansicht: aufgeschlüsselte Stockliste */
 var ekA = { q: '', marke: '', sort: 'liste', nurMerk: false, ansicht: 'karten' };
-function ekMarke(t) { t = String(t || '').trim(); var m = t.split(/\s+-\s+/)[0]; return (m !== t && m.length <= 28 ? m : t.split(/\s+/)[0]).replace(/[^\wÄÖÜäöüß+!&.\- ]/g, '').trim(); }
+function ekMarke(t) {
+  t = String(t || '').trim(); var m = t.split(/\s+-\s+/)[0]; m = (m !== t && m.length <= 40 ? m : t.split(/\s+/)[0]);
+  var w = m.split(/\s+/).filter(function (x) { return !/\d/.test(x); }); // Modellnummern (z. B. „Allibert 17193539“) weglassen
+  return (w.length ? w.join(' ') : m.split(/\s+/)[0]).replace(/[^\wÄÖÜäöüß+!&.\- ]/g, '').trim();
+}
 function ekBildSuche(p) { return 'https://www.google.com/search?tbm=isch&q=' + encodeURIComponent(p.ean || p.text); }
 function ekAngebotSeite(nr) {
   Promise.all([api('ek_liste'), api('ek_positionen', { nr: nr })]).then(function (r) {
