@@ -165,6 +165,21 @@
   .b-Aktiv { background:var(--g2); color:var(--g); } .b-Erledigt { background:#F3F4F6; color:#4B5563; }
   .b-Neu { background:var(--b2); color:var(--b); } .b-Angefragt { background:var(--o2); color:var(--o); } .b-Gekauft { background:#DCFCE7; color:#15803D; } .b-Verworfen { background:#F3F4F6; color:#6B7280; }
   .p-Hoch { background:var(--r2); color:var(--r); } .p-Mittel { background:var(--o2); color:var(--o); } .p-Niedrig { background:#F3F4F6; color:#6B7280; }
+  /* Stocklisten-Ansicht */
+  .sl-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); gap:14px; }
+  .sl-karte { position:relative; border:1px solid var(--l); border-radius:12px; overflow:hidden; background:#fff; display:flex; flex-direction:column; }
+  .sl-bild { height:150px; background:#fff; display:flex; align-items:center; justify-content:center; padding:10px; cursor:zoom-in; border-bottom:1px solid var(--l); color:#9CA3AF; font-size:13px; }
+  .sl-bild img { max-width:100%; max-height:100%; object-fit:contain; }
+  .sl-text { padding:10px 12px 12px; display:flex; flex-direction:column; gap:6px; flex:1; }
+  .sl-text > b { font-size:14px; line-height:1.3; }
+  .sl-text > small { color:var(--m); margin-top:-3px; }
+  .sl-preis { font-size:20px; font-weight:700; color:var(--g); } .sl-preis small { font-size:12px; font-weight:400; color:var(--m); }
+  .sl-zahlen { display:flex; justify-content:space-between; font-size:13px; color:var(--m); } .sl-zahlen b { color:var(--t); }
+  .sl-aktionen { display:flex; gap:6px; margin-top:auto; padding-top:4px; }
+  .sl-stern { position:absolute; top:6px; right:6px; z-index:1; border:0; background:rgba(255,255,255,.9); border-radius:99px; width:32px; height:32px; font-size:18px; cursor:pointer; color:#9CA3AF; }
+  td .sl-stern { position:static; background:none; }
+  .sl-stern.an { color:#D97706; }
+  .sl-mini { height:40px; width:70px; object-fit:contain; cursor:zoom-in; }
   /* Toast & Laden */
   #toasts { position:fixed; right:20px; bottom:20px; display:flex; flex-direction:column; gap:8px; z-index:100; }
   .toast { background:#111827; color:#fff; padding:11px 16px; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.2); max-width:420px; font-size:13.5px; }
@@ -207,7 +222,7 @@
 <div id="modalRoot"></div>
 
 <script>
-var APP_VERSION = '2026-11-12e';
+var APP_VERSION = '2026-11-13a';
 /* Selbst-Aktualisierung: holt die Seite ohne Cache und lädt neu, wenn es eine neuere Version gibt */
 (function () {
   function pruefen() {
@@ -1057,6 +1072,7 @@ function ekLieferantenListe() {
 }
 
 SEITEN.einkauf = function (arg) {
+  if (/^angebot\//.test(arg || '')) { ekAngebotSeite(String(arg).split('/')[1]); return; }
   var teile = String(arg || '').split('/'), bereich = ['suche', 'funde', 'angebote'].indexOf(teile[0]) >= 0 ? teile[0] : 'suche', filterSuche = bereich === 'funde' ? (teile[1] || '') : '';
   api('ek_liste').then(function (d) {
     ek.daten = d;
@@ -1108,14 +1124,15 @@ SEITEN.einkauf = function (arg) {
       } else {
         var heute = heuteIso();
         var l3 = d.angebote.filter(function (x) { return passt(x) && (!st || x.status === st); });
-        el.innerHTML = l3.length ? '<div class="tab-wrap"><table><thead><tr><th>Eingang</th><th>Lieferant</th><th>Titel / Inhalt</th><th>Gültig bis</th><th>Status</th><th></th></tr></thead><tbody>' +
+        el.innerHTML = l3.length ? '<div class="tab-wrap"><table><thead><tr><th>Eingang</th><th>Lieferant</th><th>Titel / Inhalt</th><th class="z">Artikel</th><th>Gültig bis</th><th>Status</th><th></th></tr></thead><tbody>' +
           l3.map(function (x) {
             var ab = x.gueltig && x.gueltig < heute && x.status === 'Offen';
             return '<tr class="klick" data-nr="' + esc(x.nr) + '"><td>' + datum(x.datum) + '</td><td><b>' + esc(ekLieferantName(x.lieferant)) + '</b></td><td>' + esc(x.titel) + (x.notiz ? '<br><small class="grau">' + esc(x.notiz) + '</small>' : '') + '</td>' +
+              '<td class="z">' + ((d.positionen || {})[x.nr] ? zahl(d.positionen[x.nr].n) + (d.positionen[x.nr].merk ? ' <small class="grau">· ' + d.positionen[x.nr].merk + ' ★</small>' : '') : '<span class="grau">–</span>') + '</td>' +
               '<td' + (ab ? ' class="zahl-leer" title="abgelaufen"' : '') + '>' + (datum(x.gueltig) || '–') + '</td><td>' + statusBadge(x.status) + '</td>' +
               '<td>' + (x.pdf ? '<a class="btn sek klein" href="' + esc(x.pdf) + '" target="_blank" rel="noopener" onclick="event.stopPropagation()">📄 PDF öffnen</a>' : '<span class="grau">kein PDF</span>') + '</td></tr>';
-          }).join('') + '</tbody></table></div>' : '<div class="leerstand">' + (d.angebote.length ? 'Nichts gefunden.' : 'Noch keine Angebote. Restposten-Listen und Angebote von Lieferanten hier als PDF hochladen.') + '</div>';
-        $$('tr[data-nr]', el).forEach(function (tr) { tr.onclick = function (ev) { if (ev.target.closest('a')) return; ekAngebotForm(d.angebote.filter(function (x) { return x.nr === tr.dataset.nr; })[0]); }; });
+          }).join('') + '</tbody></table></div>' : '<div class="leerstand">' + (d.angebote.length ? 'Nichts gefunden.' : 'Noch keine Angebote. Stocklisten und Angebote von Lieferanten hier hochladen (PDF oder Excel) – die Artikel werden automatisch ausgelesen.') + '</div>';
+        $$('tr[data-nr]', el).forEach(function (tr) { tr.onclick = function (ev) { if (ev.target.closest('a')) return; location.hash = '#einkauf/angebot/' + tr.dataset.nr; }; });
       }
     };
     $('#ekQ').oninput = function () { ek.q = this.value; male(); };
@@ -1153,10 +1170,10 @@ function ekSucheForm(x) {
 }
 function ekFundForm(x, sucheNr, hinweis) {
   var neu = !x || !x.nr; x = Object.assign({ status: 'Neu', suche: sucheNr || '' }, x || {});
-  var bild = null, suchen = ek.daten.suche.filter(function (s) { return s.status !== 'Erledigt' || s.nr === x.suche; });
+  var bild = /^data:image/.test(x.bild || '') ? x.bild : null, suchen = ek.daten.suche.filter(function (s) { return s.status !== 'Erledigt' || s.nr === x.suche; });
   var dr = drawer(neu ? 'Neues Fundstück' : 'Fundstück ' + esc(x.nr),
     '<div class="bildfeld" id="ekBf"><div class="vorschau" id="ekBfV">' + (x.bild ? '<img src="' + esc(x.bild) + '" style="width:100%;height:100%;object-fit:contain;border-radius:10px">' : 'Screenshot hierher ziehen oder einfügen (Strg/⌘+V)') + '</div>' +
-    '<div><button class="btn sek klein" id="ekBfW">Bild auswählen …</button><input type="file" accept="image/*" id="ekBfF" class="hidden"><div class="grau" style="font-size:12px;margin-top:6px">Oder Bild-Link (URL):</div><input data-f="bild" style="margin-top:4px" placeholder="https://…" value="' + esc(x.bild || '') + '"></div></div>' +
+    '<div><button class="btn sek klein" id="ekBfW">Bild auswählen …</button><input type="file" accept="image/*" id="ekBfF" class="hidden"><div class="grau" style="font-size:12px;margin-top:6px">Oder Bild-Link (URL):</div><input data-f="bild" style="margin-top:4px" placeholder="https://…" value="' + esc(/^data:/.test(x.bild || '') ? '' : (x.bild || '')) + '"></div></div>' +
     '<div class="fg">' +
     '<div class="feld voll"><label>Artikel *</label><input data-f="artikel" value="' + esc(x.artikel || '') + '" placeholder="z. B. Bambusstab 90 cm, 10er Bund"></div>' +
     '<div class="feld"><label>Lieferant / Shop</label><input data-f="lieferant" list="ekLief" value="' + esc(ekLieferantName(x.lieferant) || '') + '" placeholder="Auswählen oder eintippen"></div>' +
@@ -1254,7 +1271,7 @@ function ekAngebotForm(x) {
   var neu = !x; x = x || { status: 'Offen', datum: heuteIso() };
   var dr = drawer(neu ? 'Angebot hochladen' : 'Angebot ' + esc(x.nr),
     '<div class="feld"><label>PDF / Datei' + (neu ? ' *' : '') + '</label>' + (x.pdf ? '<div style="margin-bottom:6px"><a href="' + esc(x.pdf) + '" target="_blank" rel="noopener">📄 Aktuelle Datei öffnen</a></div>' : '') +
-    '<input type="file" id="ekPdf" accept="application/pdf,image/*,.xlsx,.xls,.csv,.docx"><div class="grau" style="font-size:12px;margin-top:4px">' + (x.pdf ? 'Neue Datei wählen, um sie zu ersetzen. ' : '') + 'Wird in Google Drive unter „Warenwirtschaft PDFs / Einkauf – Lieferanten-Angebote“ abgelegt.</div></div>' +
+    '<input type="file" id="ekPdf" accept="application/pdf,image/*,.xlsx,.xls,.csv,.docx"><div class="grau" style="font-size:12px;margin-top:4px">' + (x.pdf ? 'Neue Datei wählen, um sie zu ersetzen. ' : '') + 'Stocklisten als <b>PDF oder Excel</b> werden automatisch in einzelne Artikel aufgeschlüsselt. Die Datei liegt in Google Drive unter „Warenwirtschaft PDFs / Einkauf – Lieferanten-Angebote“.</div></div>' +
     '<div class="fg">' +
     '<div class="feld"><label>Lieferant *</label><input data-f="lieferant" list="ekLief" value="' + esc(ekLieferantName(x.lieferant) || '') + '" placeholder="Auswählen oder eintippen"></div>' +
     '<div class="feld"><label>Status</label><select data-f="status">' + opt(EK_STATUS.angebote, x.status) + '</select></div>' +
@@ -1268,9 +1285,301 @@ function ekAngebotForm(x) {
     var lf = (ek.daten.lieferanten || []).filter(function (l) { return l.firma === d.lieferant; })[0]; if (lf) d.lieferant = lf.nr;
     if (neu && !f) { toast('Bitte eine Datei auswählen.', true); return; }
     if (!f && !d.titel) { d.titel = d.titel || ''; }
-    (f ? dateiAlsDataUrl(f) : Promise.resolve('')).then(function (u) { if (u) d.pdfDatei = u; if (u && !d.titel) d.titel = f.name.replace(/\.[^.]+$/, ''); return ekSpeichern(btn, 'angebote', d, dr, neu ? 'Angebot abgelegt' : 'Gespeichert'); }).catch(fehler);
+    (f ? dateiAlsDataUrl(f) : Promise.resolve('')).then(function (u) {
+      if (u) d.pdfDatei = u; if (u && !d.titel) d.titel = f.name.replace(/\.[^.]+$/, '');
+      return mitKnopf(btn, api('ek_speichern', { bereich: 'angebote', daten: d }));
+    }).then(function (r) {
+      dr.zu(); toast((neu ? 'Angebot abgelegt' : 'Gespeichert') + ' (' + r.nr + ')');
+      var lesen = f && slLesbar(f.name, f.type) && (neu || !((ek.daten.positionen || {})[r.nr]));
+      if (f && slLesbar(f.name, f.type) && !lesen) return frage('Artikel neu auslesen?', '<p>Du hast eine neue Datei hochgeladen. Sollen die Artikel daraus neu ausgelesen werden? Die bisherigen ' + ek.daten.positionen[r.nr].n + ' Artikel werden dabei ersetzt.</p>', 'Neu auslesen').then(function (ja) {
+        if (ja) return f.arrayBuffer().then(function (buf) { return slStarten(r.nr, buf, f.name, f.type); }); route();
+      });
+      if (lesen) return f.arrayBuffer().then(function (buf) { return slStarten(r.nr, buf, f.name, f.type); });
+      route();
+    }).catch(fehler);
   };
   if (!neu) ekLoeschenKnopf(dr, 'angebote', x, x.titel || x.nr);
+}
+
+/* ============================ Einkauf: Stocklisten aufschlüsseln ============================ */
+/* ---- Stockliste auslesen (PDF über pdf.js, Excel/CSV über SheetJS) ---- */
+var SL_SPALTEN = [
+  ['ean', /\b(ean|gtin|barcode|ean[- ]?code|upc)\b/i],
+  ['artnr', /\b(art\.?[- ]?nr|artikelnummer|item ?no|sku|article ?no|ref)\b/i],
+  ['text', /(description|beschreibung|bezeichnung|omschrijving|artikel|product ?name|produkt|item)/i],
+  ['bestand', /(stock|bestand|voorraad|available|verfügbar|menge|qty$|quantity$)/i],
+  ['karton', /(qty ?\/ ?ctn|per ?ctn|karton|carton|doos|ve\b|pcs ?\/ ?ctn|inner)/i],
+  ['palette', /(pallet|palette|pal\.?)/i],
+  ['preis', /(price|preis|prijs|ek\b|€)/i],
+  ['bild', /(image|bild|foto|afbeelding|picture|photo)/i]
+];
+function slZuordnen(kopf) {
+  var z = {};
+  kopf.forEach(function (t, i) {
+    t = String(t || '').trim(); if (!t) return;
+    for (var k = 0; k < SL_SPALTEN.length; k++) {
+      var s = SL_SPALTEN[k];
+      if (z[s[0]] == null && s[1].test(t)) { if (s[0] === 'text' && /image|bild/i.test(t)) continue; z[s[0]] = i; return; }
+    }
+  });
+  return z;
+}
+function slZahl(t) {
+  t = String(t == null ? '' : t).replace(/€|eur/gi, '').trim();
+  var m = t.match(/-?\d[\d.,\s]*/); if (!m) return '';
+  var s = m[0].replace(/\s/g, '');
+  if (/,\d{1,2}$/.test(s)) s = s.replace(/\./g, '').replace(',', '.'); else if (/\.\d{3}(\.|$)/.test(s) && !/\.\d{1,2}$/.test(s)) s = s.replace(/\./g, ''); else s = s.replace(/,/g, '');
+  var n = Number(s); return isNaN(n) ? '' : n;
+}
+// "5 PCS / CTNS", "36 QTY / DSP", "1000 QTY / PALLET", "4 DSP / PALLET", "120 / 240 QTY / PALLET"
+function slVerpackung(ctn, pal) {
+  var o = { karton: '', kartonsPal: '', proPal: '', display: false };
+  ctn = String(ctn || ''); pal = String(pal || '');
+  var n1 = ctn.match(/(\d+)/); if (n1) { o.karton = +n1[1]; o.display = /dsp|display/i.test(ctn); }
+  if (/(dsp|ctn|karton|carton|doos|box)\s*\/\s*(pal)/i.test(pal)) { var a = pal.match(/(\d+)\s*(dsp|ctn|karton|carton|doos|box)/i); if (a) o.kartonsPal = +a[1]; }
+  else { var b = pal.match(/(\d+)\s*(qty|pcs|stk|st\.?|\/\s*pal)/i) || pal.match(/(\d+)/); if (b) o.proPal = +b[1]; }
+  if (!o.proPal && o.karton && o.kartonsPal) o.proPal = o.karton * o.kartonsPal;
+  if (!o.kartonsPal && o.karton && o.proPal && o.proPal % o.karton === 0) o.kartonsPal = o.proPal / o.karton;
+  return o;
+}
+function slZeileFertig(r) {
+  // Preis, der in eine Nachbarspalte gerutscht ist (z. B. "120 / 240 QTY / PALLET € 6,50")
+  if (!String(r.preis || '').trim()) ['palette', 'karton', 'bestand', 'text'].some(function (k) {
+    var m = String(r[k] || '').match(/€\s*([\d.,]+)|([\d.,]+)\s*€/); if (!m) return false;
+    r.preis = m[1] || m[2]; r[k] = String(r[k]).replace(m[0], '').trim(); return true;
+  });
+  var v = slVerpackung(r.karton, r.palette);
+  var ean = String(r.ean || '').replace(/\D/g, '');
+  return { ean: ean, artnr: String(r.artnr || '').trim(), text: String(r.text || '').replace(/\s+/g, ' ').trim(), bestand: slZahl(r.bestand), preis: slZahl(r.preis),
+    karton: v.karton, kartonsPal: v.kartonsPal, proPal: v.proPal, verpackung: [r.karton, r.palette].filter(function (x) { return String(x || '').trim(); }).join(' · ').replace(/\s+/g, ' ').trim(), bild: r.bild || '' };
+}
+var pdfjsLadung = null;
+function pdfjsLaden() {
+  if (!pdfjsLadung) pdfjsLadung = import('https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs').then(function (lib) {
+    lib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs'; return lib;
+  });
+  return pdfjsLadung;
+}
+async function slAusPdf(buf, fortschritt) {
+  var lib = await pdfjsLaden();
+  var doc = await lib.getDocument({ data: new Uint8Array(buf) }).promise;
+  var spalten = null, zeilen = [], kopfText = [];
+  for (var p = 1; p <= doc.numPages; p++) {
+    if (fortschritt) fortschritt(p, doc.numPages);
+    var page = await doc.getPage(p), vp = page.getViewport({ scale: 1 }), tc = await page.getTextContent();
+    var items = tc.items.filter(function (i) { return i.str && i.str.trim(); }).map(function (i) { return { x: i.transform[4], y: vp.height - i.transform[5], w: i.width, h: Math.abs(i.transform[3]) || 8, t: i.str.trim() }; });
+    // Zeilen bilden (gleiche Höhe ±3pt)
+    items.sort(function (a, b) { return a.y - b.y || a.x - b.x; });
+    var reihen = [];
+    items.forEach(function (it) { var r = reihen[reihen.length - 1]; if (r && Math.abs(r.y - it.y) <= 3) r.items.push(it); else reihen.push({ y: it.y, items: [it] }); });
+    // Kopfzeile finden (auf jeder Seite neu, falls wiederholt)
+    reihen.forEach(function (r) {
+      var texte = r.items.map(function (i) { return i.t; });
+      var z = slZuordnen(texte);
+      if (Object.keys(z).length >= 3 && (z.ean != null || z.text != null)) {
+        spalten = Object.keys(z).map(function (k) { return { k: k, x: r.items[z[k]].x }; }).sort(function (a, b) { return a.x - b.x; });
+        r.kopf = true; kopfText = texte;
+      }
+    });
+    if (!spalten) continue;
+    var spalteVon = function (x) { var s = spalten[0].k; spalten.forEach(function (c) { if (x >= c.x - 6) s = c.k; }); return s; };
+    var seitenZeilen = [], reste = [], kopfY = -1;
+    reihen.forEach(function (r) { if (r.kopf) kopfY = r.y; });
+    reihen.forEach(function (r) {
+      if (r.kopf || r.y < kopfY) return;
+      var o = {}; r.items.forEach(function (it) { var k = spalteVon(it.x); o[k] = (o[k] ? o[k] + ' ' : '') + it.t; });
+      var istArtikel = (o.ean && /\d{8,14}/.test(o.ean.replace(/\s/g, ''))) || (o.text && (o.preis || o.bestand));
+      if (istArtikel) { o.y = r.y; o.seite = p; seitenZeilen.push(o); } else reste.push({ y: r.y, o: o });
+    });
+    // umbrochene Zellen (z. B. zweizeilige Beschreibung) der nächstgelegenen Artikelzeile zuordnen
+    reste.forEach(function (rr) {
+      var best = null; seitenZeilen.forEach(function (z) { if (!best || Math.abs(z.y - rr.y) < Math.abs(best.y - rr.y)) best = z; });
+      if (!best || Math.abs(best.y - rr.y) > 16) return;
+      Object.keys(rr.o).forEach(function (k) { var vor = rr.y < best.y; best[k] = best[k] ? (vor ? rr.o[k] + ' ' + best[k] : best[k] + ' ' + rr.o[k]) : rr.o[k]; });
+    });
+    // Bilder: Position jedes eingebetteten Bildes aus der PDF lesen und genau diesen Bereich ausschneiden
+    if (seitenZeilen.length) {
+      var boxen = await slBildBoxen(page, lib, vp);
+      if (boxen.length) {
+        var sc = 3, v2 = page.getViewport({ scale: sc }), cv = document.createElement('canvas'); cv.width = v2.width; cv.height = v2.height;
+        await page.render({ canvasContext: cv.getContext('2d'), viewport: v2 }).promise;
+        var zeilenH = seitenZeilen.length > 1 ? (seitenZeilen[seitenZeilen.length - 1].y - seitenZeilen[0].y) / (seitenZeilen.length - 1) : 40;
+        seitenZeilen.forEach(function (z) {
+          var best = null, bd = 1e9;
+          boxen.forEach(function (b) { if (b.frei === false) return; var dd = Math.abs((b.y0 + b.y1) / 2 - z.y); if (dd < bd) { bd = dd; best = b; } });
+          if (best && bd < zeilenH * 0.75) { best.frei = false; z.bild = slAusschnitt(cv, best.x0 * sc, best.y0 * sc, (best.x1 - best.x0) * sc, (best.y1 - best.y0) * sc); }
+        });
+      }
+    }
+    zeilen = zeilen.concat(seitenZeilen);
+  }
+  return { zeilen: zeilen.map(slZeileFertig), kopf: kopfText, spalten: spalten ? spalten.map(function (s) { return s.k; }) : [] };
+}
+async function slBildBoxen(page, lib, vp) {
+  var ol = await page.getOperatorList(), O = lib.OPS, ctm = [1, 0, 0, 1, 0, 0], stapel = [], boxen = [];
+  var mal = function (m, n) { return [m[0] * n[0] + m[2] * n[1], m[1] * n[0] + m[3] * n[1], m[0] * n[2] + m[2] * n[3], m[1] * n[2] + m[3] * n[3], m[0] * n[4] + m[2] * n[5] + m[4], m[1] * n[4] + m[3] * n[5] + m[5]]; };
+  for (var i = 0; i < ol.fnArray.length; i++) {
+    var f = ol.fnArray[i], a = ol.argsArray[i];
+    if (f === O.save) stapel.push(ctm.slice());
+    else if (f === O.restore) ctm = stapel.pop() || [1, 0, 0, 1, 0, 0];
+    else if (f === O.transform) ctm = mal(ctm, a);
+    else if (f === O.paintImageXObject || f === O.paintInlineImageXObject || f === O.paintImageXObjectRepeat) {
+      var pkt = [[0, 0], [1, 0], [0, 1], [1, 1]].map(function (p) { var x = ctm[0] * p[0] + ctm[2] * p[1] + ctm[4], y = ctm[1] * p[0] + ctm[3] * p[1] + ctm[5]; return vp.convertToViewportPoint(x, y); });
+      var xs = pkt.map(function (p) { return p[0]; }), ys = pkt.map(function (p) { return p[1]; });
+      var b = { x0: Math.min.apply(null, xs), x1: Math.max.apply(null, xs), y0: Math.min.apply(null, ys), y1: Math.max.apply(null, ys) };
+      if (b.x1 - b.x0 > 8 && b.y1 - b.y0 > 8 && b.x1 - b.x0 < vp.width * 0.6) boxen.push(b);
+    }
+  }
+  return boxen;
+}
+// Ausschnitt aus der gerenderten Seite als JPEG (max. 400 px)
+function slAusschnitt(cv, x, y, w, h) {
+  x = Math.max(0, Math.round(x)); y = Math.max(0, Math.round(y)); w = Math.round(Math.min(w, cv.width - x)); h = Math.round(Math.min(h, cv.height - y));
+  if (w < 5 || h < 5) return '';
+  var c2 = document.createElement('canvas'), f = Math.min(1, 400 / Math.max(w, h));
+  c2.width = Math.round(w * f); c2.height = Math.round(h * f);
+  var g = c2.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c2.width, c2.height); g.imageSmoothingQuality = 'high';
+  g.drawImage(cv, x, y, w, h, 0, 0, c2.width, c2.height);
+  var u = c2.toDataURL('image/jpeg', 0.85); return u.length < 45000 ? u : c2.toDataURL('image/jpeg', 0.6);
+}
+function slAusTabelle(buf, name) {
+  return sheetJs().then(function () {
+    var wb = XLSX.read(buf, { type: 'array' }), ws = wb.Sheets[wb.SheetNames[0]], rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+    var kopfI = -1, z = null;
+    for (var i = 0; i < Math.min(rows.length, 30); i++) { var zz = slZuordnen(rows[i]); if (Object.keys(zz).length >= 3) { kopfI = i; z = zz; break; } }
+    if (kopfI < 0) throw new Error('In der Tabelle wurde keine Kopfzeile (EAN, Beschreibung, Preis …) gefunden.');
+    var out = rows.slice(kopfI + 1).map(function (r) { var o = {}; Object.keys(z).forEach(function (k) { o[k] = r[z[k]]; }); return o; })
+      .filter(function (o) { return String(o.ean || '').trim() || String(o.text || '').trim(); });
+    return { zeilen: out.map(slZeileFertig), kopf: rows[kopfI], spalten: Object.keys(z) };
+  });
+}
+
+function slLesbar(name, mime) { return /\.(pdf|xlsx|xls|csv)$/i.test(name || '') || /pdf|spreadsheet|excel|csv/i.test(mime || ''); }
+function slAuslesen(buf, name, mime, fortschritt) { return (/\.pdf$/i.test(name || '') || /pdf/i.test(mime || '')) ? slAusPdf(buf, fortschritt) : slAusTabelle(buf, name); }
+function b64ZuBuffer(b64) { var bin = atob(b64), u = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u.buffer; }
+// Datei auslesen → Vorschau → Positionen speichern → Angebot anzeigen
+function slStarten(nr, buf, name, mime) {
+  var m = modal('<header><h3>Stockliste wird ausgelesen …</h3></header><div class="inhalt"><p id="slFort" class="grau">Datei wird geöffnet …</p></div>');
+  return Promise.resolve().then(function () {
+    return slAuslesen(buf, name, mime, function (s, n) { var e = $('#slFort', m.el); if (e) e.textContent = 'Seite ' + s + ' von ' + n + ' …'; });
+  }).then(function (res) {
+    m.zu();
+    if (!res.zeilen.length) { toast('In der Datei wurden keine Artikelzeilen erkannt (keine Kopfzeile mit EAN/Beschreibung/Preis gefunden).', true); location.hash = '#einkauf/angebot/' + nr; return; }
+    return slVorschau(nr, res);
+  }).catch(function (e) { m.zu(); fehler(e); });
+}
+function slVorschau(nr, res) {
+  var z = res.zeilen, ohne = function (k) { return z.filter(function (x) { return x[k] === '' || x[k] == null; }).length; };
+  var namen = { ean: 'EAN', artnr: 'Art.-Nr.', text: 'Beschreibung', bestand: 'Bestand', karton: 'Stk/Karton', palette: 'Palette', preis: 'Preis', bild: 'Bild' };
+  var warn = [['preis', 'ohne Preis'], ['ean', 'ohne EAN'], ['bestand', 'ohne Bestand'], ['bild', 'ohne Bild']].map(function (w) { var n = ohne(w[0]); return n ? n + ' ' + w[1] : ''; }).filter(String);
+  var m = modal('<header><h3>' + z.length + ' Artikel erkannt</h3></header><div class="inhalt">' +
+    '<p style="margin-top:0">Erkannte Spalten: <b>' + res.spalten.map(function (k) { return namen[k] || k; }).join(' · ') + '</b>' + (warn.length ? '<br><span class="grau">' + warn.join(' · ') + '</span>' : '') + '</p>' +
+    '<div class="tab-wrap" style="max-height:52vh;overflow:auto"><table><thead><tr><th></th><th>Beschreibung</th><th>EAN</th><th class="z">Bestand</th><th class="z">Preis</th><th>Verpackung</th></tr></thead><tbody>' +
+    z.slice(0, 25).map(function (x) { return '<tr><td>' + (x.bild ? '<img src="' + x.bild + '" style="height:34px;max-width:70px;object-fit:contain">' : '') + '</td><td>' + esc(x.text) + '</td><td>' + esc(x.ean) + '</td><td class="z">' + zahl(x.bestand) + '</td><td class="z">' + (x.preis === '' ? '–' : eurP(x.preis)) + '</td><td><small>' + esc(x.verpackung) + '</small></td></tr>'; }).join('') +
+    (z.length > 25 ? '<tr><td colspan="6" class="grau">… und ' + (z.length - 25) + ' weitere</td></tr>' : '') + '</tbody></table></div></div>' +
+    '<footer><button class="btn sek" data-zu>Abbrechen</button><button class="btn" id="slOk">' + z.length + ' Artikel übernehmen</button></footer>', { breit: true });
+  return new Promise(function (fertig) {
+    $('#slOk', m.el).onclick = function () {
+      var btn = this, pakete = [], i;
+      z.forEach(function (x, k) { x.pos = k + 1; });
+      for (i = 0; i < z.length; i += 40) pakete.push(z.slice(i, i + 40));
+      knopfLaedt(btn, true);
+      var schritt = function (k) {
+        if (k >= pakete.length) return Promise.resolve();
+        btn.textContent = 'Speichert … ' + Math.min(z.length, (k + 1) * 40) + '/' + z.length;
+        return api('ek_positionen_speichern', { nr: nr, zeilen: pakete[k], neu: k === 0 }).then(function () { return schritt(k + 1); });
+      };
+      schritt(0).then(function () {
+        m.zu(); toast(z.length + ' Artikel aus der Stockliste übernommen.');
+        if (location.hash === '#einkauf/angebot/' + nr) route(); else location.hash = '#einkauf/angebot/' + nr;
+        fertig(true);
+      }).catch(function (e) { knopfLaedt(btn, false); btn.textContent = 'Erneut versuchen'; fehler(e); });
+    };
+  });
+}
+
+/* Angebot-Ansicht: aufgeschlüsselte Stockliste */
+var ekA = { q: '', marke: '', sort: 'liste', nurMerk: false, ansicht: 'karten' };
+function ekMarke(t) { t = String(t || '').trim(); var m = t.split(/\s+-\s+/)[0]; return (m !== t && m.length <= 28 ? m : t.split(/\s+/)[0]).replace(/[^\wÄÖÜäöüß+!&.\- ]/g, '').trim(); }
+function ekBildSuche(p) { return 'https://www.google.com/search?tbm=isch&q=' + encodeURIComponent(p.ean || p.text); }
+function ekAngebotSeite(nr) {
+  Promise.all([api('ek_liste'), api('ek_positionen', { nr: nr })]).then(function (r) {
+    ek.daten = r[0];
+    var a = r[0].angebote.filter(function (x) { return x.nr === nr; })[0], pos = r[1];
+    if (!a) { $('#main').innerHTML = '<div class="leerstand">Angebot ' + esc(nr) + ' nicht gefunden. <a href="#einkauf/angebote">Zurück</a></div>'; return; }
+    var lief = ekLieferantName(a.lieferant);
+    var summe = function (l, f) { return l.reduce(function (s, p) { return s + (Number(f(p)) || 0); }, 0); };
+    var marken = {}; pos.forEach(function (p) { var k = ekMarke(p.text); marken[k] = (marken[k] || 0) + 1; });
+    var markenListe = Object.keys(marken).sort(function (x, y) { return marken[y] - marken[x] || x.localeCompare(y); });
+    $('#main').innerHTML = '<div style="margin-bottom:6px"><a href="#einkauf/angebote" class="grau">← Lieferanten-Angebote</a></div>' +
+      kopf(esc(lief) + (a.titel ? ' · ' + esc(a.titel) : ''), 'Eingang ' + datum(a.datum) + (a.gueltig ? ' · gültig bis ' + datum(a.gueltig) : '') + ' · ' + statusBadge(a.status) + (a.notiz ? ' · ' + esc(a.notiz) : ''),
+        (a.pdf ? '<a class="btn sek" href="' + esc(a.pdf) + '" target="_blank" rel="noopener">📄 Original</a>' : '') +
+        (a.pdf ? '<button class="btn sek" id="slNeu">↻ Aus Datei auslesen</button>' : '') + '<button class="btn sek" id="slBearb">✏️ Bearbeiten</button>') +
+      (pos.length ? '<div class="mini-stat" style="grid-template-columns:repeat(4,1fr)"><div><b>' + zahl(pos.length) + '</b><small>Artikel</small></div><div><b>' + zahl(summe(pos, function (p) { return p.bestand; })) + '</b><small>Stück auf Lager</small></div>' +
+        '<div><b>' + eur0(summe(pos, function (p) { return (Number(p.bestand) || 0) * (Number(p.preis) || 0); })) + '</b><small>Warenwert (Bestand × Preis)</small></div><div><b id="slMerkZahl">' + pos.filter(function (p) { return p.merk; }).length + '</b><small>★ gemerkt</small></div></div>' +
+        '<div class="karte"><div class="filter"><input type="search" id="slQ" placeholder="Suchen (Name, EAN) …" value="' + esc(ekA.q) + '">' +
+        '<select id="slMarke"><option value="">Alle Marken (' + markenListe.length + ')</option>' + markenListe.map(function (k) { return '<option value="' + esc(k) + '"' + (ekA.marke === k ? ' selected' : '') + '>' + esc(k) + ' (' + marken[k] + ')</option>'; }).join('') + '</select>' +
+        '<select id="slSort">' + [['liste', 'Reihenfolge der Liste'], ['preis', 'Preis aufsteigend'], ['preisab', 'Preis absteigend'], ['bestand', 'Bestand absteigend'], ['wert', 'Warenwert absteigend'], ['name', 'Name A–Z']].map(function (o) { return '<option value="' + o[0] + '"' + (ekA.sort === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select>' +
+        '<div class="chips"><button class="chip' + (ekA.nurMerk ? '' : ' an') + '" data-m="0">Alle</button><button class="chip' + (ekA.nurMerk ? ' an' : '') + '" data-m="1">★ Gemerkt</button>' +
+        '<button class="chip' + (ekA.ansicht === 'karten' ? ' an' : '') + '" data-a="karten" style="margin-left:8px">▦ Karten</button><button class="chip' + (ekA.ansicht === 'liste' ? ' an' : '') + '" data-a="liste">☰ Liste</button></div></div>' +
+        '<div class="grau" id="slAnz" style="font-size:13px;margin:-4px 0 10px"></div><div id="slInhalt"></div></div>'
+      : '<div class="leerstand">Für dieses Angebot sind noch keine Artikel ausgelesen.' + (a.pdf ? '<br><button class="btn" id="slLeer" style="margin-top:12px">📄 Artikel aus der Datei auslesen</button>' : '') + '</div>');
+    var auslesen = function (btn) {
+      var los = function () { mitKnopf(btn, api('ek_datei', { nr: nr })).then(function (f) { return slStarten(nr, b64ZuBuffer(f.daten), f.name, f.mime); }).catch(fehler); };
+      if (pos.length) frage('Neu auslesen?', '<p>Die ' + pos.length + ' Artikel dieses Angebots werden durch die neu ausgelesenen ersetzt. Markierungen (★) gehen dabei verloren.</p>', 'Neu auslesen').then(function (ja) { if (ja) los(); });
+      else los();
+    };
+    if ($('#slNeu')) $('#slNeu').onclick = function () { auslesen(this); };
+    if ($('#slLeer')) $('#slLeer').onclick = function () { auslesen(this); };
+    $('#slBearb').onclick = function () { ekAngebotForm(a); };
+    if (!pos.length) return;
+    var male = function () {
+      var q = ekA.q.toLowerCase();
+      var l = pos.filter(function (p) { return (!q || (p.text + ' ' + p.ean + ' ' + p.artnr).toLowerCase().indexOf(q) >= 0) && (!ekA.marke || ekMarke(p.text) === ekA.marke) && (!ekA.nurMerk || p.merk); });
+      var wert = function (p) { return (Number(p.bestand) || 0) * (Number(p.preis) || 0); };
+      var srt = { preis: function (x, y) { return (Number(x.preis) || 1e9) - (Number(y.preis) || 1e9); }, preisab: function (x, y) { return (Number(y.preis) || 0) - (Number(x.preis) || 0); },
+        bestand: function (x, y) { return (Number(y.bestand) || 0) - (Number(x.bestand) || 0); }, wert: function (x, y) { return wert(y) - wert(x); }, name: function (x, y) { return String(x.text).localeCompare(String(y.text)); } }[ekA.sort];
+      if (srt) l = l.slice().sort(srt);
+      $('#slAnz').textContent = l.length === pos.length ? pos.length + ' Artikel' : l.length + ' von ' + pos.length + ' Artikeln · Warenwert ' + eur0(l.reduce(function (s, p) { return s + wert(p); }, 0));
+      var pack = function (p) { return [p.karton ? zahl(p.karton) + ' Stk/Karton' : '', p.kartonsPal ? zahl(p.kartonsPal) + ' Kart./Pal.' : '', p.proPal ? zahl(p.proPal) + ' Stk/Pal.' : ''].filter(String).join(' · ') || esc(p.verpackung || ''); };
+      var stern = function (p) { return '<button class="sl-stern' + (p.merk ? ' an' : '') + '" data-merk="' + p.pos + '" title="Merken">' + (p.merk ? '★' : '☆') + '</button>'; };
+      var aktionen = function (p) { return '<button class="btn klein" data-fund="' + p.pos + '">→ Fundstück</button><a class="btn sek klein" href="' + ekBildSuche(p) + '" target="_blank" rel="noopener" title="Größeres Bild bei Google suchen">🔍 Bild</a>'; };
+      $('#slInhalt').innerHTML = !l.length ? '<div class="leerstand">Keine Artikel für diese Auswahl.</div>' : ekA.ansicht === 'liste'
+        ? '<div class="tab-wrap"><table><thead><tr><th></th><th></th><th>Artikel</th><th>EAN</th><th class="z">Bestand</th><th class="z">Preis/Stk</th><th>Verpackung</th><th class="z">Warenwert</th><th></th></tr></thead><tbody>' + l.map(function (p) {
+            return '<tr><td>' + stern(p) + '</td><td>' + (p.bild ? '<img src="' + p.bild + '" class="sl-mini" data-zoom="' + p.pos + '">' : '') + '</td><td><b>' + esc(p.text) + '</b></td><td><small>' + esc(p.ean) + '</small></td><td class="z">' + zahl(p.bestand) + '</td><td class="z"><b>' + (p.preis === '' ? '–' : eurP(p.preis)) + '</b></td><td><small>' + pack(p) + '</small></td><td class="z">' + (wert(p) ? eur0(wert(p)) : '–') + '</td><td style="white-space:nowrap">' + aktionen(p) + '</td></tr>';
+          }).join('') + '</tbody></table></div>'
+        : '<div class="sl-grid">' + l.map(function (p) {
+            return '<div class="sl-karte">' + stern(p) + '<div class="sl-bild" data-zoom="' + p.pos + '">' + (p.bild ? '<img src="' + p.bild + '" alt="" loading="lazy">' : '<span>Kein Bild</span>') + '</div>' +
+              '<div class="sl-text"><b>' + esc(p.text) + '</b><small>' + esc(ekMarke(p.text)) + (p.ean ? ' · EAN ' + esc(p.ean) : '') + '</small>' +
+              '<div class="sl-preis">' + (p.preis === '' ? '–' : eurP(p.preis)) + '<small> / Stk</small></div>' +
+              '<div class="sl-zahlen"><span>Bestand <b>' + zahl(p.bestand) + '</b></span><span>Wert <b>' + (wert(p) ? eur0(wert(p)) : '–') + '</b></span></div>' +
+              (pack(p) ? '<div class="ek-pack">📦 ' + pack(p) + '</div>' : '') + '<div class="sl-aktionen">' + aktionen(p) + '</div></div></div>';
+          }).join('') + '</div>';
+      var finde = function (n) { return pos.filter(function (p) { return p.pos === Number(n); })[0]; };
+      $$('[data-merk]', $('#slInhalt')).forEach(function (b) { b.onclick = function () {
+        var p = finde(b.dataset.merk); p.merk = !p.merk; male(); $('#slMerkZahl').textContent = pos.filter(function (x) { return x.merk; }).length;
+        api('ek_position_merken', { nr: nr, pos: p.pos, daten: { merk: p.merk } }).catch(function (e) { p.merk = !p.merk; male(); fehler(e); });
+      }; });
+      $$('[data-fund]', $('#slInhalt')).forEach(function (b) { b.onclick = function () {
+        var p = finde(b.dataset.fund);
+        ekFundForm({ artikel: p.text, ean: p.ean, artnr: p.artnr, ek: p.preis, lieferant: a.lieferant, lagerLief: p.bestand, karton: p.karton, kartonsPal: p.kartonsPal, proPal: p.proPal, link: a.pdf, bild: p.bild,
+          infos: 'Aus Lieferanten-Angebot ' + nr + (a.titel ? ' („' + a.titel + '“)' : '') + ', Pos. ' + p.pos + (p.verpackung ? '\nVerpackung laut Liste: ' + p.verpackung : '') }, '',
+          '✓ Aus dem Angebot übernommen. Jetzt <b>Ziel-EK</b>, VK und Menge eintragen und speichern.');
+      }; });
+      $$('[data-zoom]', $('#slInhalt')).forEach(function (b) { b.onclick = function () {
+        var p = finde(b.dataset.zoom);
+        modal('<header><h3>' + esc(p.text) + '</h3></header><div class="inhalt" style="text-align:center">' + (p.bild ? '<img src="' + p.bild + '" style="width:100%;max-width:560px;max-height:60vh;object-fit:contain">' : '') +
+          '<p class="grau">Das Bild ist so groß, wie es in der Liste des Lieferanten steckt. Schärfere Fotos: <a href="' + ekBildSuche(p) + '" target="_blank" rel="noopener">🔍 per EAN bei Google suchen</a></p>' +
+          '<p>EAN ' + esc(p.ean || '–') + ' · Bestand ' + zahl(p.bestand) + ' · <b>' + (p.preis === '' ? '–' : eurP(p.preis)) + '</b>/Stk' + (p.verpackung ? '<br><small class="grau">' + esc(p.verpackung) + '</small>' : '') + '</p></div><footer><button class="btn sek" data-zu>Schließen</button></footer>', { breit: true });
+      }; });
+    };
+    $('#slQ').oninput = function () { ekA.q = this.value; male(); };
+    $('#slMarke').onchange = function () { ekA.marke = this.value; male(); };
+    $('#slSort').onchange = function () { ekA.sort = this.value; male(); };
+    $$('[data-m]').forEach(function (b) { b.onclick = function () { ekA.nurMerk = b.dataset.m === '1'; $$('[data-m]').forEach(function (c) { c.classList.toggle('an', c === b); }); male(); }; });
+    $$('[data-a]').forEach(function (b) { b.onclick = function () { ekA.ansicht = b.dataset.a; $$('[data-a]').forEach(function (c) { c.classList.toggle('an', c === b); }); male(); }; });
+    male();
+  }).catch(fehler);
 }
 
 /* ============================ Eigenes Angebot importieren (Beschaffung, BA-…) ============================ */
