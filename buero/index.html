@@ -138,6 +138,13 @@
   .mini-stat b { display:block; font-size:18px; }
   .mini-stat small { color:var(--m); font-size:12px; }
   /* Einkauf */
+  .akq-s0 { background:#EEF0F2; color:#555; } .akq-s1 { background:#E3EDFB; color:#1D4F91; } .akq-s2 { background:#FFF1D6; color:#8A5A00; }
+  .akq-s3 { background:#E2F3E7; color:#22663A; } .akq-s4 { background:#F7E3E3; color:#8E2A2A; } .akq-s5 { background:#2E5E3E; color:#fff; }
+  .akq-z { display:grid; grid-template-columns:130px 1fr; gap:10px; padding:7px 0; border-bottom:1px solid var(--g3); font-size:14px; }
+  .akq-z > span { color:var(--m); font-size:13px; }
+  .akq-verlauf { display:flex; flex-direction:column; gap:10px; }
+  .akq-e { border-left:3px solid var(--g); background:var(--g3); border-radius:0 10px 10px 0; padding:8px 12px; font-size:14px; }
+  .akq-e-kopf { display:flex; gap:10px; align-items:center; margin-bottom:3px; } .akq-e-kopf .grau { font-size:12.5px; } .akq-e-kopf .icon-btn { margin-left:auto; opacity:.5; }
   .reiter { display:flex; gap:6px; margin-bottom:14px; flex-wrap:wrap; }
   .reiter a { padding:9px 14px; border-radius:10px; background:var(--w); box-shadow:var(--sh); color:var(--t); text-decoration:none; font-weight:600; display:flex; align-items:center; gap:8px; }
   .reiter a span { background:var(--g3); color:var(--m); border-radius:99px; padding:1px 8px; font-size:12px; }
@@ -209,6 +216,7 @@
       <a href="#kalkulation" data-s="kalkulation"><span class="ico">🧮</span>Kalkulation</a>
       <a href="#lieferanten" data-s="lieferanten"><span class="ico">🏭</span>Lieferanten</a>
       <a href="#einkauf" data-s="einkauf"><span class="ico">🛍️</span>Einkauf</a>
+      <a href="#akquise" data-s="akquise"><span class="ico">🤝</span>Akquise</a>
       <div class="sep"></div>
       <a href="#sortiment" data-s="sortiment"><span class="ico">📋</span>Sortimentsliste</a>
       <a href="#liste" data-s="liste"><span class="ico">🗒️</span>Neutrale Liste</a>
@@ -222,7 +230,7 @@
 <div id="modalRoot"></div>
 
 <script>
-var APP_VERSION = '2026-11-13c';
+var APP_VERSION = '2026-11-13d';
 /* Selbst-Aktualisierung: holt die Seite ohne Cache und lädt neu, wenn es eine neuere Version gibt */
 (function () {
   function pruefen() {
@@ -1886,6 +1894,215 @@ function kaSeite(nr) {
     };
     male();
   }).catch(function (e) { if (/nicht gefunden/.test(e && e.message || '')) location.hash = '#einkauf/abgleich'; else fehler(e); });
+}
+
+/* ============================ Akquise: potenzielle Lieferanten & Kunden ============================ */
+var AKQ = {
+  akqLief: { pfad: 'lief', titel: 'Lieferanten-Akquise', ico: '🏭', ziel: 'Lieferant', erst: 'Angefragt',
+    status: ['Recherchiert', 'Angefragt', 'Antwort erhalten', 'Interessant', 'Kein Interesse', 'Lieferant geworden'],
+    leer: 'Noch keine Firmen. Legt hier Firmen an, die Restposten, Sonderposten oder Lagerüberstände haben könnten – Hersteller, Großhändler, Importeure, Insolvenzverwalter …',
+    branchen: ['Hersteller', 'Großhandel', 'Importeur', 'Gartencenter-Kette', 'Baumarkt-Lieferant', 'Insolvenzverwalter', 'Restpostenhändler', 'Online-Händler'] },
+  akqKunde: { pfad: 'kunde', titel: 'Kunden-Akquise', ico: '🌱', ziel: 'Kunde', erst: 'Kontaktiert',
+    status: ['Recherchiert', 'Kontaktiert', 'Interesse', 'Angebot geschickt', 'Kein Interesse', 'Kunde geworden'],
+    leer: 'Noch keine Firmen. Legt hier Gartencenter, Baumärkte, Raiffeisen-Märkte, Hofläden und Fachhändler an, die ihr ansprechen wollt.',
+    branchen: ['Gartencenter', 'Baumarkt', 'Raiffeisen / Landhandel', 'Blumengroßhandel', 'Hofladen', 'Zoo-/Tierbedarf', 'Restpostenmarkt', 'Online-Händler'] }
+};
+var AKQ_ARTEN = ['Anruf', 'Mail', 'Treffen / Messe', 'Notiz', 'Angebot / Liste erhalten'];
+var AKQ_QUELLEN = ['Google', 'Messe', 'wlw.de', 'LinkedIn', 'Empfehlung', 'Restposten-Börse', 'Branchenbuch'];
+var akqS = { q: '', st: '', branche: '', prio: '' };
+function akqOffen(b, s) { var l = AKQ[b].status; return s !== l[4] && s !== l[5]; }
+function akqBadge(b, s) { var i = AKQ[b].status.indexOf(s); return '<span class="badge akq-s' + (i < 0 ? 0 : i) + '">' + esc(s || '–') + '</span>'; }
+function akqTage(n) { var d = new Date(); d.setDate(d.getDate() + n); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+function akqFaellig(b, x) { return x.wv && x.wv <= heuteIso() && akqOffen(b, x.status); }
+function akqWeb(u) { u = String(u || '').trim(); return u ? (/^https?:\/\//i.test(u) ? u : 'https://' + u) : ''; }
+function akqDomain(u) { return String(u || '').toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0]; }
+
+SEITEN.akquise = function (arg) {
+  var teile = String(arg || '').split('/'), b = teile[0] === 'kunde' ? 'akqKunde' : 'akqLief';
+  if (teile[1]) { akqDetail(b, teile[1]); return; }
+  api('akq_liste', { bereich: b }).then(function (d) {
+    var A = AKQ[b], l = d.kontakte, heute = heuteIso();
+    var offen = l.filter(function (x) { return akqOffen(b, x.status); }), faellig = l.filter(function (x) { return akqFaellig(b, x); });
+    var branchen = {}; l.forEach(function (x) { if (x.branche) branchen[x.branche] = (branchen[x.branche] || 0) + 1; });
+    $('#main').innerHTML = kopf('Akquise', 'Firmen recherchieren, anfragen und nachhaken – getrennt nach möglichen Lieferanten und Kunden',
+        '<button class="btn sek" id="akVorlage">✉️ Mail-Vorlage</button><button class="btn" id="akNeu">＋ Firma anlegen</button>') +
+      '<div class="reiter">' + ['akqLief', 'akqKunde'].map(function (k) {
+        return '<a href="#akquise/' + AKQ[k].pfad + '"' + (k === b ? ' class="an"' : '') + '>' + AKQ[k].ico + ' ' + AKQ[k].titel + (k === b ? ' <span>' + offen.length + '</span>' : '') + '</a>';
+      }).join('') + '</div>' +
+      '<div class="mini-stat" style="grid-template-columns:repeat(4,1fr)"><div><b>' + l.length + '</b><small>Firmen gesamt</small></div><div><b>' + offen.length + '</b><small>offen in Bearbeitung</small></div>' +
+      '<div><b' + (faellig.length ? ' class="zahl-leer"' : '') + '>' + faellig.length + '</b><small>Wiedervorlage fällig</small></div><div><b class="zahl-gut">' + l.filter(function (x) { return x.status === A.status[5]; }).length + '</b><small>' + A.ziel + ' geworden</small></div></div>' +
+      '<div class="karte"><div class="filter"><input type="search" id="akQ" placeholder="Suchen (Firma, Ort, Ansprechpartner, Waren …)" value="' + esc(akqS.q) + '">' +
+      '<select id="akBr"><option value="">Alle Branchen</option>' + Object.keys(branchen).sort().map(function (k) { return '<option' + (akqS.branche === k ? ' selected' : '') + '>' + esc(k) + '</option>'; }).join('') + '</select>' +
+      '<select id="akPr"><option value="">Alle Prioritäten</option>' + opt(EK_PRIO, akqS.prio) + '</select>' +
+      '<div class="chips" id="akSt"></div></div><div id="akInhalt"></div></div>';
+    var chips = [['', 'Alle'], ['_faellig', '⏰ Fällig'], ['_offen', 'Offen']].concat(A.status.map(function (s) { return [s, s]; }));
+    var male = function () {
+      $('#akSt').innerHTML = chips.map(function (c) { return '<button class="chip' + (akqS.st === c[0] ? ' an' : '') + '" data-st="' + esc(c[0]) + '">' + esc(c[1]) + '</button>'; }).join('');
+      $$('#akSt .chip').forEach(function (bt) { bt.onclick = function () { akqS.st = bt.dataset.st; male(); }; });
+      var q = akqS.q.toLowerCase();
+      var f = l.filter(function (x) {
+        if (q && JSON.stringify(x).toLowerCase().indexOf(q) < 0) return false;
+        if (akqS.branche && x.branche !== akqS.branche) return false;
+        if (akqS.prio && x.prio !== akqS.prio) return false;
+        if (akqS.st === '_faellig') return akqFaellig(b, x);
+        if (akqS.st === '_offen') return akqOffen(b, x.status);
+        return !akqS.st || x.status === akqS.st;
+      });
+      if (akqS.st === '_faellig') f.sort(function (x, y) { return x.wv < y.wv ? -1 : 1; });
+      $('#akInhalt').innerHTML = f.length ? '<div class="tab-wrap"><table><thead><tr><th>Prio</th><th>Firma</th><th>Branche · Waren</th><th>Ansprechpartner</th><th>Status</th><th>Wiedervorlage</th><th>Letzter Kontakt</th><th class="z">Verlauf</th></tr></thead><tbody>' +
+        f.map(function (x) {
+          return '<tr class="klick" data-nr="' + esc(x.nr) + '"><td><span class="badge p-' + esc(x.prio) + '">' + esc(x.prio || '–') + '</span></td>' +
+            '<td><b>' + esc(x.firma) + '</b><br><small class="grau">' + esc([[x.plz, x.ort].filter(String).join(' '), x.land && x.land !== 'Deutschland' ? x.land : ''].filter(String).join(', ')) + (x.web ? ' · <a href="' + esc(akqWeb(x.web)) + '" target="_blank" rel="noopener">' + esc(akqDomain(x.web)) + '</a>' : '') + '</small></td>' +
+            '<td>' + esc(x.branche || '–') + (x.waren ? '<br><small class="grau">' + esc(x.waren) + '</small>' : '') + '</td>' +
+            '<td>' + esc(x.ansprechpartner || '–') + (x.email || x.telefon ? '<br><small class="grau">' + esc(x.email || x.telefon) + '</small>' : '') + '</td>' +
+            '<td>' + akqBadge(b, x.status) + (x.verknuepft ? '<br><small class="grau">' + esc(x.verknuepft) + '</small>' : '') + '</td>' +
+            '<td' + (akqFaellig(b, x) ? ' class="zahl-leer" style="font-weight:600"' : '') + '>' + (x.wv ? datum(x.wv) + (x.wv < heute && akqOffen(b, x.status) ? ' ⏰' : '') : '<span class="grau">–</span>') + '</td>' +
+            '<td>' + (x.letzter ? datum(x.letzter) : '<span class="grau">noch nie</span>') + '</td><td class="z">' + (d.verlauf[x.nr] || '<span class="grau">0</span>') + '</td></tr>';
+        }).join('') + '</tbody></table></div>' : '<div class="leerstand">' + (l.length ? 'Nichts gefunden.' : A.leer) + '</div>';
+      $$('tr[data-nr]', $('#akInhalt')).forEach(function (tr) { tr.onclick = function (ev) { if (ev.target.closest('a')) return; location.hash = '#akquise/' + A.pfad + '/' + tr.dataset.nr; }; });
+    };
+    $('#akQ').oninput = function () { akqS.q = this.value; male(); };
+    $('#akBr').onchange = function () { akqS.branche = this.value; male(); };
+    $('#akPr').onchange = function () { akqS.prio = this.value; male(); };
+    $('#akNeu').onclick = function () { akqForm(b, null, l); };
+    $('#akVorlage').onclick = function () { akqVorlageForm(b, d.vorlage); };
+    male();
+  }).catch(fehler);
+};
+
+function akqForm(b, x, alle) {
+  var A = AKQ[b], neu = !x; x = x || { status: A.status[0], prio: 'Mittel', land: 'Deutschland' };
+  var f = function (k, label, ph, extra) { return '<div class="feld' + (extra || '') + '"><label>' + label + '</label><input data-f="' + k + '" value="' + esc(x[k] || '') + '"' + (ph ? ' placeholder="' + esc(ph) + '"' : '') + (k === 'branche' ? ' list="akBranchen"' : '') + (k === 'quelle' ? ' list="akQuellen"' : '') + '></div>'; };
+  var dr = drawer(neu ? 'Firma anlegen – ' + A.titel : esc(x.firma),
+    '<div class="fg">' + f('firma', 'Firma *', 'z. B. Muster Gartenbedarf GmbH', ' voll') + f('ansprechpartner', 'Ansprechpartner', 'z. B. Frau Meier') + f('position', 'Position', 'z. B. Einkauf, Geschäftsführung') +
+    f('email', 'E-Mail', 'einkauf@firma.de') + f('telefon', 'Telefon') + f('mobil', 'Mobil') + f('web', 'Website', 'www.firma.de') +
+    f('strasse', 'Straße', '', ' voll') + f('plz', 'PLZ') + f('ort', 'Ort') + f('land', 'Land') +
+    f('branche', 'Branche', 'Auswählen oder eintippen') + f('waren', 'Warengruppen', 'z. B. Gartendeko, Pflanzgefäße, Werkzeug', ' voll') + f('quelle', 'Gefunden über', 'z. B. Messe, Google, Empfehlung') +
+    '<div class="feld"><label>Priorität</label><select data-f="prio">' + opt(EK_PRIO, x.prio) + '</select></div>' +
+    '<div class="feld"><label>Status</label><select data-f="status">' + opt(A.status, x.status) + '</select></div>' +
+    '<div class="feld"><label>Wiedervorlage</label><input type="date" data-f="wv" value="' + esc(x.wv || '') + '"></div>' +
+    '<div class="feld voll"><label>Notiz</label><textarea data-f="notiz" placeholder="z. B. hat jedes Frühjahr Überhänge bei Pflanzgefäßen">' + esc(x.notiz || '') + '</textarea></div></div>' +
+    '<datalist id="akBranchen">' + A.branchen.map(function (s) { return '<option value="' + esc(s) + '">'; }).join('') + '</datalist>' +
+    '<datalist id="akQuellen">' + AKQ_QUELLEN.map(function (s) { return '<option value="' + esc(s) + '">'; }).join('') + '</datalist>', ekFuss(!neu && x));
+  $$('[data-zu]', dr.el).forEach(function (bt) { bt.onclick = dr.zu; });
+  $('#ekOk', dr.el).onclick = function () {
+    var btn = this, d = ekWerte(dr); if (!neu) d.nr = x.nr;
+    if (!String(d.firma || '').trim()) { toast('Bitte einen Firmennamen eingeben.', true); return; }
+    var name = d.firma.trim().toLowerCase(), dom = akqDomain(d.web);
+    var doppelt = neu && (alle || []).filter(function (y) { return y.firma.trim().toLowerCase() === name || (dom && akqDomain(y.web) === dom); })[0];
+    (doppelt ? frage('Firma schon vorhanden?', '<p><b>' + esc(doppelt.firma) + '</b> (' + esc(doppelt.nr) + ', Status ' + esc(doppelt.status) + ') ist schon in der Liste. Trotzdem neu anlegen?</p>', 'Trotzdem anlegen') : Promise.resolve(true)).then(function (ja) {
+      if (!ja) return;
+      mitKnopf(btn, api('ek_speichern', { bereich: b, daten: d })).then(function (r) {
+        toast((neu ? 'Angelegt' : 'Gespeichert') + ' (' + r.nr + ')'); dr.zu();
+        if (neu) location.hash = '#akquise/' + A.pfad + '/' + r.nr; else route();
+      }).catch(fehler);
+    });
+  };
+  if (!neu) ekLoeschenKnopf(dr, b, x, x.firma);
+  setTimeout(function () { var i = $('[data-f="firma"]', dr.el); if (i && neu) i.focus(); }, 50);
+}
+
+function akqVorlageForm(b, v) {
+  var m = modal('<header><h3>✉️ Mail-Vorlage – ' + AKQ[b].titel + '</h3></header><div class="inhalt">' +
+    '<p class="grau" style="margin-top:0">Platzhalter werden beim Öffnen automatisch ersetzt: <b>{Anrede}</b> (z. B. „Sehr geehrte Frau Meier“), <b>{Firma}</b>, <b>{Ansprechpartner}</b>, <b>{Ort}</b>, <b>{Warengruppen}</b>, <b>{Name}</b> (wer angemeldet ist).</p>' +
+    '<div class="feld"><label>Betreff</label><input id="avB" value="' + esc(v.betreff) + '"></div>' +
+    '<div class="feld"><label>Text</label><textarea id="avT" style="min-height:300px">' + esc(v.text) + '</textarea></div></div>' +
+    '<footer><button class="btn sek" id="avStd" style="margin-right:auto">Standard wiederherstellen</button><button class="btn sek" data-zu>Abbrechen</button><button class="btn" id="avOk">Speichern</button></footer>', { breit: true });
+  $('#avOk', m.el).onclick = function () { mitKnopf(this, api('akq_vorlage', { bereich: b, vorlage: { betreff: $('#avB', m.el).value, text: $('#avT', m.el).value } })).then(function () { toast('Vorlage gespeichert.'); m.zu(); route(); }).catch(fehler); };
+  $('#avStd', m.el).onclick = function () { mitKnopf(this, api('akq_vorlage', { bereich: b, vorlage: { zuruecksetzen: true } })).then(function (s) { $('#avB', m.el).value = s.betreff; $('#avT', m.el).value = s.text; toast('Standardtext wiederhergestellt.'); }).catch(fehler); };
+}
+function akqAnrede(ap) {
+  ap = String(ap || '').trim();
+  if (/^herr\b/i.test(ap)) return 'Sehr geehrter ' + ap;
+  if (/^frau\b/i.test(ap)) return 'Sehr geehrte ' + ap;
+  return ap ? 'Guten Tag ' + ap : 'Sehr geehrte Damen und Herren';
+}
+function akqFuellen(t, k) {
+  var w = { Anrede: akqAnrede(k.ansprechpartner), Firma: k.firma, Ansprechpartner: k.ansprechpartner || '', Ort: k.ort || '', Warengruppen: k.waren || '', Name: NAME || '' };
+  return String(t || '').replace(/\{(\w+)\}/g, function (a, n) { return n in w ? w[n] : a; });
+}
+// Anfrage-Mail: Vorlage füllen, in Gmail / Mailprogramm öffnen, im Verlauf vermerken
+function akqMail(b, k, v, fertig) {
+  var A = AKQ[b];
+  var m = modal('<header><h3>✉️ Anfrage an ' + esc(k.firma) + '</h3></header><div class="inhalt">' +
+    (k.email ? '' : '<div class="hinweis-box">Für diese Firma ist keine E-Mail-Adresse hinterlegt – du kannst den Text kopieren und z. B. ins Kontaktformular einfügen.</div>') +
+    '<div class="feld"><label>An</label><input id="amAn" value="' + esc(k.email || '') + '"></div>' +
+    '<div class="feld"><label>Betreff</label><input id="amB" value="' + esc(akqFuellen(v.betreff, k)) + '"></div>' +
+    '<div class="feld"><label>Text <small class="grau">(hier noch anpassbar)</small></label><textarea id="amT" style="min-height:280px">' + esc(akqFuellen(v.text, k)) + '</textarea></div>' +
+    '<p class="grau" style="font-size:12.5px;margin:0">Die Mail wird nicht automatisch verschickt – sie öffnet sich fertig ausgefüllt, du schickst selbst ab. Im Verlauf wird die Anfrage vermerkt' + (k.status === A.status[0] ? ', der Status springt auf „' + A.erst + '“' : '') + (k.wv ? '' : ' und eine Wiedervorlage in 7 Tagen gesetzt') + '.</p></div>' +
+    '<footer><button class="btn sek" id="amKopie" style="margin-right:auto">📋 Text kopieren</button><button class="btn sek" id="amMail">Mailprogramm</button><button class="btn" id="amGmail">In Gmail öffnen</button></footer>', { breit: true });
+  var werte = function () { return { an: $('#amAn', m.el).value.trim(), b: $('#amB', m.el).value, t: $('#amT', m.el).value }; };
+  var vermerken = function (wie) {
+    var w = werte(), daten = {};
+    if (k.status === A.status[0]) daten.status = A.erst;
+    if (!k.wv) daten.wv = akqTage(7);
+    if (w.an && w.an !== k.email) daten.email = w.an;
+    api('akq_verlauf_neu', { bereich: b, nr: k.nr, eintrag: { art: 'Mail', text: 'Anfrage-Mail (' + wie + '): „' + w.b + '“', von: NAME }, daten: daten }).then(function () { if (fertig) fertig(); }).catch(fehler);
+  };
+  $('#amGmail', m.el).onclick = function () { var w = werte(); window.open('https://mail.google.com/mail/?view=cm&fs=1&to=' + encodeURIComponent(w.an) + '&su=' + encodeURIComponent(w.b) + '&body=' + encodeURIComponent(w.t), '_blank'); m.zu(); vermerken('Gmail'); };
+  $('#amMail', m.el).onclick = function () { var w = werte(); location.href = 'mailto:' + encodeURIComponent(w.an).replace(/%40/g, '@') + '?subject=' + encodeURIComponent(w.b) + '&body=' + encodeURIComponent(w.t); m.zu(); vermerken('Mailprogramm'); };
+  $('#amKopie', m.el).onclick = function () {
+    var w = werte();
+    (navigator.clipboard ? navigator.clipboard.writeText(w.t) : Promise.reject()).then(function () { toast('Text kopiert.'); }).catch(function () { $('#amT', m.el).select(); document.execCommand('copy'); toast('Text kopiert.'); });
+    frage('Als Anfrage vermerken?', '<p>Soll im Verlauf vermerkt werden, dass ihr ' + esc(k.firma) + ' angeschrieben habt?</p>', 'Ja, vermerken').then(function (ja) { if (ja) { m.zu(); vermerken('Text kopiert'); } });
+  };
+}
+
+function akqDetail(b, nr) {
+  var A = AKQ[b];
+  api('akq_kontakt', { bereich: b, nr: nr }).then(function (d) {
+    var k = d.kontakt, v = d.verlauf;
+    var zeile = function (label, wert) { return wert ? '<div class="akq-z"><span>' + label + '</span><div>' + wert + '</div></div>' : ''; };
+    var tel = function (t) { return t ? '<a href="tel:' + esc(String(t).replace(/[^\d+]/g, '')) + '">' + esc(t) + '</a>' : ''; };
+    $('#main').innerHTML = '<div style="margin-bottom:6px"><a href="#akquise/' + A.pfad + '" class="grau">← ' + A.titel + '</a></div>' +
+      kopf(esc(k.firma), akqBadge(b, k.status) + ' · <span class="badge p-' + esc(k.prio) + '">' + esc(k.prio || '–') + '</span> · ' + esc(k.nr) + (k.branche ? ' · ' + esc(k.branche) : '') + (k.ort ? ' · ' + esc(k.ort) : ''),
+        '<button class="btn" id="akMail">✉️ Anfrage-Mail</button>' + (k.telefon || k.mobil ? '<a class="btn sek" href="tel:' + esc(String(k.telefon || k.mobil).replace(/[^\d+]/g, '')) + '">📞 Anrufen</a>' : '') +
+        '<button class="btn sek" id="akBearb">✏️ Bearbeiten</button>' +
+        (k.verknuepft ? '<a class="btn sek" href="#' + (b === 'akqLief' ? 'lieferanten' : 'kunden') + '">✓ ' + A.ziel + ' ' + esc(k.verknuepft) + '</a>' : '<button class="btn sek" id="akUeber">➜ Als ' + A.ziel + ' übernehmen</button>')) +
+      '<div class="raster r2"><div class="karte"><h2>Kontakt</h2>' +
+        zeile('Ansprechpartner', esc(k.ansprechpartner) + (k.position ? ' <small class="grau">· ' + esc(k.position) + '</small>' : '')) +
+        zeile('E-Mail', k.email ? '<a href="mailto:' + esc(k.email) + '">' + esc(k.email) + '</a>' : '') + zeile('Telefon', tel(k.telefon)) + zeile('Mobil', tel(k.mobil)) +
+        zeile('Website', k.web ? '<a href="' + esc(akqWeb(k.web)) + '" target="_blank" rel="noopener">' + esc(akqDomain(k.web)) + '</a>' : '') +
+        zeile('Adresse', esc([k.strasse, [k.plz, k.ort].filter(String).join(' '), k.land].filter(String).join(', '))) +
+        zeile('Warengruppen', esc(k.waren)) + zeile('Gefunden über', esc(k.quelle)) + zeile('Angelegt', datum(k.datum)) + zeile('Notiz', esc(k.notiz).replace(/\n/g, '<br>')) +
+        '<div class="fg" style="margin-top:14px"><div class="feld"><label>Status</label><select id="akSt">' + opt(A.status, k.status) + '</select></div>' +
+        '<div class="feld"><label>Wiedervorlage</label><input type="date" id="akWv" value="' + esc(k.wv || '') + '"></div></div></div>' +
+      '<div class="karte"><h2>Verlauf <small class="grau" style="font-weight:400">' + v.length + ' Einträge</small></h2>' +
+        '<div class="fg"><div class="feld"><label>Was ist passiert?</label><select id="avArt">' + opt(AKQ_ARTEN, 'Anruf') + '</select></div>' +
+        '<div class="feld"><label>Status danach</label><select id="avSt"><option value="">– unverändert –</option>' + opt(A.status, '') + '</select></div>' +
+        '<div class="feld voll"><textarea id="avText" placeholder="z. B. Mit Herrn Schulz gesprochen – haben jedes Jahr im Januar Überhänge, Liste kommt per Mail"></textarea></div>' +
+        '<div class="feld voll"><label>Nächste Wiedervorlage</label><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input type="date" id="avWv" style="max-width:170px">' +
+          [[3, '+3 Tage'], [7, '+1 Woche'], [14, '+2 Wochen'], [30, '+1 Monat']].map(function (t) { return '<button class="chip" data-wv="' + t[0] + '">' + t[1] + '</button>'; }).join('') + '<button class="chip" data-wv="x">keine</button></div></div></div>' +
+        '<div style="text-align:right;margin-bottom:14px"><button class="btn" id="avOk">Eintragen</button></div>' +
+        (v.length ? '<div class="akq-verlauf">' + v.map(function (e) {
+          return '<div class="akq-e"><div class="akq-e-kopf"><b>' + esc(e.art) + '</b><span class="grau">' + esc(datum(e.datum.slice(0, 10)) + ' ' + e.datum.slice(11)) + (e.von ? ' · ' + esc(e.von) : '') + '</span><button class="icon-btn" data-weg="' + esc(e.id) + '" title="Eintrag löschen">✕</button></div>' + (e.text ? '<div>' + esc(e.text).replace(/\n/g, '<br>') + '</div>' : '') + '</div>';
+        }).join('') + '</div>' : '<div class="leerstand" style="padding:18px">Noch keine Einträge. Trag Anrufe, Mails und Gespräche hier ein – so wisst ihr beide immer, wer wann mit wem gesprochen hat.</div>') +
+      '</div></div>';
+    var neuLaden = function () { akqDetail(b, nr); };
+    $('#akBearb').onclick = function () { akqForm(b, k); };
+    $('#akMail').onclick = function () { akqMail(b, k, d.vorlage, neuLaden); };
+    if ($('#akUeber')) $('#akUeber').onclick = function () {
+      var bt = this;
+      frage('Als ' + A.ziel + ' übernehmen?', '<p><b>' + esc(k.firma) + '</b> wird mit Adresse und Kontaktdaten in eure ' + (b === 'akqLief' ? 'Lieferanten' : 'Kunden') + 'liste übernommen und bekommt eine ' + (b === 'akqLief' ? 'L' : 'K') + '-Nummer. Der Akquise-Verlauf bleibt hier erhalten.</p>', 'Übernehmen').then(function (ja) {
+        if (ja) mitKnopf(bt, api('akq_uebernehmen', { bereich: b, nr: nr, von: NAME })).then(function (r) { C.einst = null; C.lieferanten = null; C.kunden = null; toast('Als ' + A.ziel + ' ' + r.nr + ' angelegt.'); neuLaden(); }).catch(fehler);
+      });
+    };
+    var feldSpeichern = function (daten, text) { api('ek_speichern', { bereich: b, daten: Object.assign({ nr: nr }, daten) }).then(function () { toast(text); }).catch(fehler); };
+    $('#akSt').onchange = function () { var s = this.value; api('ek_speichern', { bereich: b, daten: { nr: nr, status: s } }).then(function () { toast('Status: ' + s); neuLaden(); }).catch(fehler); };
+    $('#akWv').onchange = function () { feldSpeichern({ wv: this.value }, this.value ? 'Wiedervorlage ' + datum(this.value) : 'Wiedervorlage entfernt'); };
+    $$('[data-wv]').forEach(function (bt) { bt.onclick = function () { $('#avWv').value = bt.dataset.wv === 'x' ? '' : akqTage(Number(bt.dataset.wv)); $('#avWv').dataset.gesetzt = '1'; }; });
+    $('#avOk').onclick = function () {
+      var text = $('#avText').value.trim(), st = $('#avSt').value, daten = {};
+      if (!text && !st) { toast('Bitte kurz eintragen, was passiert ist.', true); return; }
+      if (st) daten.status = st;
+      if ($('#avWv').value || $('#avWv').dataset.gesetzt) daten.wv = $('#avWv').value;
+      mitKnopf(this, api('akq_verlauf_neu', { bereich: b, nr: nr, eintrag: { art: $('#avArt').value, text: text + (st && st !== k.status ? (text ? '\n' : '') + 'Status: ' + k.status + ' → ' + st : ''), von: NAME }, daten: daten }))
+        .then(function () { toast('Eingetragen.'); neuLaden(); }).catch(fehler);
+    };
+    $$('[data-weg]').forEach(function (bt) { bt.onclick = function () {
+      frage('Eintrag löschen?', '<p>Dieser Verlaufseintrag wird entfernt.</p>', 'Löschen', true).then(function (ja) { if (ja) mitKnopf(bt, api('akq_verlauf_weg', { nr: nr, id: bt.dataset.weg })).then(neuLaden).catch(fehler); });
+    }; });
+  }).catch(function (e) { if (/nicht gefunden/.test(e && e.message || '')) location.hash = '#akquise/' + A.pfad; else fehler(e); });
 }
 
 /* ============================ Eigenes Angebot importieren (Beschaffung, BA-…) ============================ */
