@@ -222,7 +222,7 @@
 <div id="modalRoot"></div>
 
 <script>
-var APP_VERSION = '2026-11-13b';
+var APP_VERSION = '2026-11-13c';
 /* Selbst-Aktualisierung: holt die Seite ohne Cache und lädt neu, wenn es eine neuere Version gibt */
 (function () {
   function pruefen() {
@@ -1043,9 +1043,9 @@ function sheetJs() {
   return sheetJsLaden;
 }
 /* ============================ Einkauf: Suchliste · Fundstücke · Lieferanten-Angebote ============================ */
-var EK_STATUS = { suche: ['Aktiv', 'Erledigt'], funde: ['Neu', 'Angefragt', 'Gekauft', 'Verworfen'], angebote: ['Offen', 'Gekauft', 'Abgelehnt'] };
+var EK_STATUS = { suche: ['Aktiv', 'Erledigt'], funde: ['Neu', 'Angefragt', 'Gekauft', 'Verworfen'], angebote: ['Offen', 'Gekauft', 'Abgelehnt'], abgleich: ['Offen', 'Angeboten', 'Erledigt'] };
 var EK_PRIO = ['Hoch', 'Mittel', 'Niedrig'];
-var ek = { daten: null, q: '', st: { suche: 'Aktiv', funde: 'offen', angebote: 'Offen' } };
+var ek = { daten: null, q: '', st: { suche: 'Aktiv', funde: 'offen', angebote: 'Offen', abgleich: '' } };
 function ekZahl(x) { var n = parseFloat(String(x == null ? '' : x).replace(/\s/g, '').replace(',', '.')); return isNaN(n) ? null : n; }
 function ekLink(u) { u = String(u || '').trim(); if (!u) return ''; return /^https?:\/\//i.test(u) ? u : 'https://' + u; }
 function ekLieferantName(x) { var l = ((ek.daten && ek.daten.lieferanten) || []).filter(function (y) { return y.nr === x; })[0]; return l ? l.firma : x; }
@@ -1073,18 +1073,20 @@ function ekLieferantenListe() {
 
 SEITEN.einkauf = function (arg) {
   if (/^angebot\//.test(arg || '')) { ekAngebotSeite(String(arg).split('/')[1]); return; }
-  var teile = String(arg || '').split('/'), bereich = ['suche', 'funde', 'angebote'].indexOf(teile[0]) >= 0 ? teile[0] : 'suche', filterSuche = bereich === 'funde' ? (teile[1] || '') : '';
+  if (/^abgleich\/./.test(arg || '')) { kaSeite(String(arg).split('/')[1]); return; }
+  var teile = String(arg || '').split('/'), bereich = ['suche', 'funde', 'angebote', 'abgleich'].indexOf(teile[0]) >= 0 ? teile[0] : 'suche', filterSuche = bereich === 'funde' ? (teile[1] || '') : '';
   api('ek_liste').then(function (d) {
     ek.daten = d;
     var aktiv = d.suche.filter(function (x) { return x.status !== 'Erledigt'; }).length;
     var offen = d.funde.filter(function (x) { return x.status === 'Neu' || x.status === 'Angefragt'; }).length;
     var angOffen = d.angebote.filter(function (x) { return x.status === 'Offen'; }).length;
-    var neuText = { suche: '＋ Neue Suche', funde: '＋ Neues Fundstück', angebote: '＋ Angebot hochladen' }[bereich];
+    var neuText = { suche: '＋ Neue Suche', funde: '＋ Neues Fundstück', angebote: '＋ Angebot hochladen', abgleich: '＋ Kunden-EK-Liste prüfen' }[bereich];
     $('#main').innerHTML = kopf('Einkauf', 'Wonach wir suchen, was wir gefunden haben und was Lieferanten uns anbieten', (bereich === 'funde' ? '<button class="btn sek" id="ekMeekes" title="Produktlink einfügen (Meekes, Expo-Börse oder anderer Shop) – Daten & Bild werden übernommen">🔗 Per Link holen</button>' : '') + '<button class="btn" id="ekNeu">' + neuText + '</button>') +
       '<div class="reiter">' +
       '<a href="#einkauf/suche"' + (bereich === 'suche' ? ' class="an"' : '') + '>🔎 Suchliste <span>' + aktiv + '</span></a>' +
       '<a href="#einkauf/funde"' + (bereich === 'funde' ? ' class="an"' : '') + '>🛒 Fundstücke <span>' + offen + '</span></a>' +
-      '<a href="#einkauf/angebote"' + (bereich === 'angebote' ? ' class="an"' : '') + '>📄 Lieferanten-Angebote <span>' + angOffen + '</span></a></div>' +
+      '<a href="#einkauf/angebote"' + (bereich === 'angebote' ? ' class="an"' : '') + '>📄 Lieferanten-Angebote <span>' + angOffen + '</span></a>' +
+      '<a href="#einkauf/abgleich"' + (bereich === 'abgleich' ? ' class="an"' : '') + '>⚖️ Kunden-Abgleich <span>' + (d.abgleich || []).filter(function (x) { return x.status === 'Offen'; }).length + '</span></a></div>' +
       '<div class="karte"><div class="filter"><input type="search" id="ekQ" placeholder="Suchen …" value="' + esc(ek.q) + '"><div class="chips" id="ekSt"></div></div><div id="ekInhalt"></div></div>' + ekLieferantenListe();
     var chips = bereich === 'funde' ? [['offen', 'Offen'], ['Neu', 'Neu'], ['Angefragt', 'Angefragt'], ['Gekauft', 'Gekauft'], ['Verworfen', 'Verworfen'], ['', 'Alle']]
       : EK_STATUS[bereich].map(function (s) { return [s, s]; }).concat([['', 'Alle']]);
@@ -1121,6 +1123,8 @@ SEITEN.einkauf = function (arg) {
               (x.link ? '<a class="btn sek klein" href="' + esc(ekLink(x.link)) + '" target="_blank" rel="noopener" onclick="event.stopPropagation()">🔗 Zum Angebot</a>' : '') + '</div></div>';
           }).join('') + '</div>' : '<div class="leerstand">' + (d.funde.length ? 'Nichts gefunden.' : 'Noch keine Fundstücke. Wenn ihr online oder beim Lieferanten etwas Interessantes seht: Link, Preis und Screenshot hier ablegen.') + '</div>');
         $$('.ek-karte', el).forEach(function (c) { c.onclick = function () { ekFundForm(d.funde.filter(function (x) { return x.nr === c.dataset.nr; })[0]); }; });
+      } else if (bereich === 'abgleich') {
+        kaListe(el, (d.abgleich || []).filter(function (x) { return passt(x) && (!st || x.status === st); }), (d.abgleich || []).length);
       } else {
         var heute = heuteIso();
         var l3 = d.angebote.filter(function (x) { return passt(x) && (!st || x.status === st); });
@@ -1137,7 +1141,7 @@ SEITEN.einkauf = function (arg) {
     };
     $('#ekQ').oninput = function () { ek.q = this.value; male(); };
     if ($('#ekMeekes')) $('#ekMeekes').onclick = function () { ekMeekesDialog(filterSuche); };
-    $('#ekNeu').onclick = function () { if (bereich === 'suche') ekSucheForm(null); else if (bereich === 'funde') ekFundForm(null, filterSuche); else ekAngebotForm(null); };
+    $('#ekNeu').onclick = function () { if (bereich === 'suche') ekSucheForm(null); else if (bereich === 'funde') ekFundForm(null, filterSuche); else if (bereich === 'abgleich') kaNeu(); else ekAngebotForm(null); };
     maleChips(); male();
   }).catch(fehler);
 };
@@ -1666,6 +1670,222 @@ function ekAngebotSeite(nr) {
     $$('[data-a]').forEach(function (b) { b.onclick = function () { ekA.ansicht = b.dataset.a; $$('[data-a]').forEach(function (c) { c.classList.toggle('an', c === b); }); male(); }; });
     male();
   }).catch(fehler);
+}
+
+/* ============================ Einkauf: Kunden-EK-Abgleich ============================ */
+/* Kunde (z. B. Gartencenter) schickt seine aktuellen Einkaufspreise → per EAN mit allen Lieferanten-Angeboten und Fundstücken vergleichen */
+var kaA = { q: '', filter: 'alle', sort: 'liste' };
+function kaListe(el, l, gesamt) {
+  el.innerHTML = l.length ? '<div class="tab-wrap"><table><thead><tr><th>Datum</th><th>Kunde</th><th>Titel / Datei</th><th class="z">Abschlag</th><th>Status</th><th></th></tr></thead><tbody>' +
+    l.map(function (x) {
+      return '<tr class="klick" data-nr="' + esc(x.nr) + '"><td>' + datum(x.datum) + '</td><td><b>' + esc(x.kunde) + '</b></td><td>' + esc(x.titel) + (x.notiz ? '<br><small class="grau">' + esc(x.notiz) + '</small>' : '') + '</td>' +
+        '<td class="z">' + (x.abschlag === '' || x.abschlag == null ? '–' : esc(komma(x.abschlag)) + ' %') + '</td><td>' + statusBadge(x.status) + '</td>' +
+        '<td>' + (x.pdf ? '<a class="btn sek klein" href="' + esc(x.pdf) + '" target="_blank" rel="noopener" onclick="event.stopPropagation()">📄 Datei</a>' : '') + '</td></tr>';
+    }).join('') + '</tbody></table></div>'
+    : '<div class="leerstand">' + (gesamt ? 'Nichts gefunden.' : 'Noch kein Abgleich. Wenn ein Kunde euch seine Einkaufspreise zu einer Artikelliste schickt (Excel oder PDF), hier hochladen – die Artikel werden per EAN mit allen Lieferanten-Angeboten und Fundstücken verglichen.') + '</div>';
+  $$('tr[data-nr]', el).forEach(function (tr) { tr.onclick = function (ev) { if (ev.target.closest('a')) return; location.hash = '#einkauf/abgleich/' + tr.dataset.nr; }; });
+}
+
+// Kundenliste lesen: EAN-Spalte und Preisspalten selbst erkennen (die Kundenliste ist oft unsere eigene Liste + eine EK-Spalte)
+function kaEanZelle(v) { var t = String(v == null ? '' : v).trim(); return /^[\d\s]{8,16}$/.test(t) && t.replace(/\D/g, '').length >= 8 && t.replace(/\D/g, '').length <= 14 ? t.replace(/\D/g, '') : ''; }
+function kaAuslesen(buf, name) {
+  var k = new Uint8Array(buf.slice(0, 4));
+  if (String.fromCharCode(k[0], k[1], k[2], k[3]) === '%PDF') return slAusPdf(buf).then(function (r) {
+    return { zeilen: r.zeilen.map(function (z) { return { ean: z.ean, text: z.text, werte: [z.preis] }; }), spalten: [{ name: 'Preis', i: 0 }], vorschlag: 0 };
+  });
+  return sheetJs().then(function () {
+    var wb = XLSX.read(buf, { type: 'array' }), best = null;
+    wb.SheetNames.forEach(function (sn) {
+      var rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: '', raw: true }), breite = 0;
+      rows.forEach(function (r) { breite = Math.max(breite, r.length); });
+      var eanZ = []; for (var c = 0; c < breite; c++) eanZ[c] = rows.filter(function (r) { return kaEanZelle(r[c]); }).length;
+      var ec = eanZ.indexOf(Math.max.apply(null, eanZ.concat([0])));
+      if (eanZ[ec] && (!best || eanZ[ec] > best.n)) best = { rows: rows, ec: ec, n: eanZ[ec], breite: breite };
+    });
+    if (!best) throw new Error('In der Datei wurde keine Spalte mit EAN-Nummern gefunden. Der Abgleich läuft über die EAN.');
+    var rows = best.rows, ec = best.ec;
+    var erste = -1; rows.some(function (r, i) { if (kaEanZelle(r[ec])) { erste = i; return true; } });
+    var kopf = []; for (var h = erste - 1; h >= 0 && h >= erste - 6; h--) { if (rows[h].filter(function (x) { return String(x).trim(); }).length >= 2) { kopf = rows[h]; break; } }
+    var daten = rows.slice(erste).filter(function (r) { return kaEanZelle(r[ec]); });
+    var textC = -1, zahlC = [];
+    for (var c = 0; c < best.breite; c++) {
+      if (c === ec) continue;
+      var kt = String(kopf[c] || '');
+      var num = daten.filter(function (r) { var v = r[c]; return v !== '' && slZahl(v) !== '' && /^[\s€\d.,-]+(eur|€)?\s*$/i.test(String(v)); }).length;
+      if (num >= daten.length * 0.3 && num > 0) zahlC.push(c);
+      else if (textC < 0 && SL_SPALTEN[2][1].test(kt) && !/bild|image/i.test(kt)) textC = c;
+    }
+    if (textC < 0) { var lang = -1; for (c = 0; c < best.breite; c++) { if (c === ec || zahlC.indexOf(c) >= 0) continue; var L = daten.reduce(function (s, r) { return s + String(r[c] || '').length; }, 0); if (L > lang) { lang = L; textC = c; } } }
+    var buchstabe = function (c) { var t = ''; c++; while (c > 0) { var m = (c - 1) % 26; t = String.fromCharCode(65 + m) + t; c = Math.floor((c - 1) / 26); } return t; };
+    var spalten = zahlC.map(function (c) { return { name: String(kopf[c] || '').trim() || 'Spalte ' + buchstabe(c), i: c }; });
+    var vorschlag = -1;
+    spalten.forEach(function (s, j) { if (/\bek\b|einkauf|preis|price|prijs|netto|€/i.test(s.name)) vorschlag = j; });
+    if (vorschlag < 0) vorschlag = spalten.length - 1;
+    return { zeilen: daten.map(function (r) { return { ean: kaEanZelle(r[ec]), text: textC >= 0 ? String(r[textC] || '').replace(/\s+/g, ' ').trim() : '', werte: zahlC.map(function (c) { return slZahl(r[c]); }) }; }), spalten: spalten, vorschlag: vorschlag };
+  });
+}
+// Vorschau: welche Spalte ist der Kunden-EK?
+function kaVorschau(res) {
+  return new Promise(function (ok) {
+    var z = res.zeilen, erledigt = false, fertig = function (v) { if (!erledigt) { erledigt = true; ok(v); } };
+    if (!res.spalten.length) { toast('In der Datei wurde keine Spalte mit Preisen gefunden. Ohne Kunden-EK werden nur die Treffer angezeigt.', true); }
+    var sel = res.vorschlag;
+    var m = modal('<header><h3>' + z.length + ' Artikel in der Kundenliste</h3></header><div class="inhalt">' +
+      (res.spalten.length ? '<div class="feld"><label>In welcher Spalte steht der Einkaufspreis des Kunden?</label><select id="kaSp">' + res.spalten.map(function (s, j) { return '<option value="' + j + '"' + (j === sel ? ' selected' : '') + '>' + esc(s.name) + '</option>'; }).join('') + '</select></div>' : '') +
+      '<div class="grau" id="kaInfo" style="font-size:13px;margin-bottom:8px"></div><div class="tab-wrap" style="max-height:48vh;overflow:auto"><table><thead><tr><th>EAN</th><th>Artikel</th><th class="z">Kunden-EK</th></tr></thead><tbody id="kaVb"></tbody></table></div></div>' +
+      '<footer><button class="btn sek" data-zu>Abbrechen</button><button class="btn" id="kaOk">Abgleich starten</button></footer>', { breit: true, zu: function () { fertig(null); } });
+    var male = function () {
+      var mit = z.filter(function (x) { return x.werte[sel] !== '' && x.werte[sel] != null; }).length;
+      $('#kaInfo', m.el).textContent = mit + ' von ' + z.length + ' Artikeln haben einen Preis in dieser Spalte.';
+      $('#kaVb', m.el).innerHTML = z.slice(0, 20).map(function (x) { var w = x.werte[sel]; return '<tr><td><small>' + esc(x.ean) + '</small></td><td>' + esc(x.text) + '</td><td class="z"><b>' + (w === '' || w == null ? '–' : eurP(w)) + '</b></td></tr>'; }).join('') +
+        (z.length > 20 ? '<tr><td colspan="3" class="grau">… und ' + (z.length - 20) + ' weitere</td></tr>' : '');
+    };
+    if ($('#kaSp', m.el)) $('#kaSp', m.el).onchange = function () { sel = Number(this.value); male(); };
+    male();
+    $('#kaOk', m.el).onclick = function () { fertig(z.map(function (x, i) { return { pos: i + 1, ean: x.ean, text: x.text, kundenEk: sel >= 0 && x.werte[sel] != null ? x.werte[sel] : '' }; })); m.zu(); };
+  });
+}
+function kaZeilenSpeichern(nr, zeilen, btn) {
+  var pakete = []; for (var i = 0; i < zeilen.length; i += 250) pakete.push(zeilen.slice(i, i + 250));
+  var schritt = function (k) {
+    if (k >= pakete.length) return Promise.resolve();
+    if (btn) btn.textContent = 'Speichert … ' + Math.min(zeilen.length, (k + 1) * 250) + '/' + zeilen.length;
+    return api('ek_abgleich_zeilen_speichern', { nr: nr, zeilen: pakete[k], neu: k === 0 }).then(function () { return schritt(k + 1); });
+  };
+  return schritt(0);
+}
+function kaForm(x) {
+  var neu = !x; x = x || { status: 'Offen', abschlag: 10, datum: heuteIso() };
+  return einst().then(function (e) {
+    var kunden = (e.kunden || []).map(function (k) { return k.firma; }).filter(String);
+    var dr = drawer(neu ? 'Kunden-EK-Liste prüfen' : 'Abgleich ' + esc(x.nr),
+      (neu ? '<p class="grau" style="margin-top:0">Liste mit den Einkaufspreisen des Kunden hochladen (Excel oder PDF). Jeder Artikel wird per <b>EAN</b> mit allen Lieferanten-Angeboten und Fundstücken verglichen – egal von wie vielen Lieferanten.</p>' : '') +
+      '<div class="feld"><label>Datei' + (neu ? ' *' : '') + '</label>' + (x.pdf ? '<div style="margin-bottom:6px"><a href="' + esc(x.pdf) + '" target="_blank" rel="noopener">📄 Aktuelle Datei öffnen</a></div>' : '') +
+      '<input type="file" id="kaDatei" accept=".xlsx,.xls,.csv,application/pdf"><div class="grau" style="font-size:12px;margin-top:4px">' + (x.pdf ? 'Neue Datei wählen, um die Liste neu einzulesen. ' : '') + 'Wird in Google Drive unter „Warenwirtschaft PDFs / Einkauf – Kunden-EK-Listen“ abgelegt.</div></div>' +
+      '<div class="fg"><div class="feld"><label>Kunde *</label><input data-f="kunde" list="kaKunden" value="' + esc(x.kunde || '') + '" placeholder="Auswählen oder eintippen"></div>' +
+      '<div class="feld"><label>Abschlag auf Kunden-EK (%)</label><input data-f="abschlag" inputmode="decimal" value="' + esc(komma(x.abschlag)) + '"><div class="grau" style="font-size:12px;margin-top:3px">So viel günstiger als sein jetziger EK bieten wir an.</div></div>' +
+      '<div class="feld voll"><label>Titel</label><input data-f="titel" value="' + esc(x.titel || '') + '" placeholder="z. B. Gardena-Liste EKs Gartencenter"></div>' +
+      '<div class="feld"><label>Datum</label><input type="date" data-f="datum" value="' + esc(x.datum || '') + '"></div>' +
+      '<div class="feld"><label>Status</label><select data-f="status">' + opt(EK_STATUS.abgleich, x.status) + '</select></div>' +
+      '<div class="feld voll"><label>Notiz</label><textarea data-f="notiz">' + esc(x.notiz || '') + '</textarea></div></div>' +
+      '<datalist id="kaKunden">' + kunden.map(function (k) { return '<option value="' + esc(k) + '">'; }).join('') + '</datalist>', ekFuss(!neu && x));
+    $$('[data-zu]', dr.el).forEach(function (b) { b.onclick = dr.zu; });
+    $('#ekOk', dr.el).onclick = function () {
+      var btn = this, d = ekWerte(dr), f = $('#kaDatei', dr.el).files[0], zeilen = null; if (!neu) d.nr = x.nr;
+      if (neu && !f) { toast('Bitte die Datei des Kunden auswählen.', true); return; }
+      if (!String(d.kunde || '').trim()) { toast('Bitte den Kunden eintragen.', true); return; }
+      if (f && !d.titel) d.titel = f.name.replace(/\.[^.]+$/, '');
+      knopfLaedt(btn, true);
+      (f ? f.arrayBuffer().then(function (buf) { return kaAuslesen(buf, f.name); }).then(kaVorschau) : Promise.resolve(null)).then(function (z) {
+        if (f && !z) { knopfLaedt(btn, false); return; }
+        zeilen = z;
+        return (f ? dateiAlsDataUrl(f) : Promise.resolve('')).then(function (u) {
+          if (u) d.pdfDatei = u;
+          return api('ek_speichern', { bereich: 'abgleich', daten: d });
+        }).then(function (r) {
+          return (zeilen ? kaZeilenSpeichern(r.nr, zeilen, btn) : Promise.resolve()).then(function () {
+            dr.zu(); toast((neu ? 'Abgleich angelegt' : 'Gespeichert') + ' (' + r.nr + ')' + (zeilen ? ' · ' + zeilen.length + ' Artikel' : ''));
+            if (location.hash === '#einkauf/abgleich/' + r.nr) route(); else location.hash = '#einkauf/abgleich/' + r.nr;
+          });
+        });
+      }).catch(function (e) { knopfLaedt(btn, false); fehler(e); });
+    };
+    if (!neu) ekLoeschenKnopf(dr, 'abgleich', x, (x.kunde || '') + ' – ' + (x.titel || x.nr));
+  }).catch(fehler);
+}
+function kaNeu() { kaForm(null); }
+
+function kaSeite(nr) {
+  api('ek_abgleich', { nr: nr }).then(function (r) {
+    var a = r.abgleich, z = r.zeilen;
+    var abschlag = ekZahl(a.abschlag); if (abschlag == null) abschlag = 10;
+    var rechne = function () {
+      z.forEach(function (k) {
+        var q = k.quellen.filter(function (s) { return s.ek !== '' && s.ek != null; })[0] || k.quellen[0] || null;
+        var kEk = ekZahl(k.kundenEk);
+        k.best = q; k.ek = q && q.ek !== '' ? Number(q.ek) : null;
+        k.vk = kEk != null ? Math.round(kEk * (1 - abschlag / 100) * 100) / 100 : null;
+        k.spiel = kEk != null && k.ek != null ? kEk - k.ek : null;
+        k.spielP = k.spiel != null && kEk ? k.spiel / kEk : null;
+        k.marge = k.vk != null && k.ek != null && k.vk > 0 ? (k.vk - k.ek) / k.vk : null;
+        k.stk = k.vk != null && k.ek != null ? k.vk - k.ek : null;
+        k.menge = q ? Number(q.bestand) || 0 : 0;
+        k.ertrag = k.stk != null && k.stk > 0 ? k.stk * k.menge : 0;
+        k.ampel = k.marge == null ? '' : (k.marge >= 0.25 ? 'gut' : (k.marge >= 0.10 ? 'knapp' : 'leer'));
+      });
+    };
+    rechne();
+    $('#main').innerHTML = '<div style="margin-bottom:6px"><a href="#einkauf/abgleich" class="grau">← Kunden-Abgleich</a></div>' +
+      kopf('⚖️ ' + esc(a.kunde) + (a.titel ? ' · ' + esc(a.titel) : ''), datum(a.datum) + ' · ' + statusBadge(a.status) + (a.notiz ? ' · ' + esc(a.notiz) : ''),
+        (a.pdf ? '<a class="btn sek" href="' + esc(a.pdf) + '" target="_blank" rel="noopener">📄 Kundenliste</a>' : '') + '<button class="btn sek" id="kaBearb">✏️ Bearbeiten / neu einlesen</button>') +
+      '<div class="mini-stat" id="kaKpi" style="grid-template-columns:repeat(4,1fr)"></div>' +
+      '<div class="karte"><div class="filter" style="align-items:center"><input type="search" id="kaQ" placeholder="Suchen (Name, EAN, Lieferant) …" value="' + esc(kaA.q) + '">' +
+      '<label style="display:flex;align-items:center;gap:6px;white-space:nowrap;font-size:14px">Wir bieten <input id="kaAb" inputmode="decimal" value="' + esc(komma(abschlag)) + '" style="width:58px;text-align:right"> % unter Kunden-EK</label>' +
+      '<select id="kaSort">' + [['liste', 'Reihenfolge der Liste'], ['marge', 'Marge absteigend'], ['ertrag', 'Rohertrag-Potenzial absteigend'], ['spiel', 'Preisabstand € absteigend']].map(function (o) { return '<option value="' + o[0] + '"' + (kaA.sort === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select>' +
+      '<div class="chips" id="kaF"></div></div>' +
+      '<div class="grau" style="font-size:12.5px;margin:-4px 0 10px">Unser EK = günstigste Quelle mit derselben EAN (Lieferanten-Angebote und Fundstücke; bei Fundstücken zählt der Ziel-EK). VK-Vorschlag = Kunden-EK − Abschlag. Ampel: <span class="zahl-gut">ab 25 %</span> · <span class="zahl-knapp">10–25 %</span> · <span class="zahl-leer">unter 10 %</span> Marge.</div>' +
+      '<div id="kaInhalt"></div></div>';
+    $('#kaBearb').onclick = function () { kaForm(a); };
+    var finde = function (pos) { return z.filter(function (k) { return String(k.pos) === String(pos); })[0]; };
+    var male = function () {
+      var treffer = z.filter(function (k) { return k.best; }), gut = z.filter(function (k) { return k.ampel === 'gut'; }), knapp = z.filter(function (k) { return k.ampel === 'knapp'; });
+      var ertrag = gut.concat(knapp).reduce(function (s, k) { return s + k.ertrag; }, 0);
+      $('#kaKpi').innerHTML = '<div><b>' + zahl(z.length) + '</b><small>Artikel in der Kundenliste</small></div><div><b>' + zahl(treffer.length) + '</b><small>bei uns im Angebot (EAN-Treffer)</small></div>' +
+        '<div><b class="zahl-gut">' + zahl(gut.length) + '</b><small>lohnen sich (≥ 25 % Marge)' + (knapp.length ? ' · ' + knapp.length + ' knapp' : '') + '</small></div><div><b>' + eur0(ertrag) + '</b><small>Rohertrag, wenn wir den Lieferbestand komplett verkaufen</small></div>';
+      var fl = [['alle', 'Alle', z.length], ['treffer', 'Mit Treffer', treffer.length], ['gut', 'Lohnend', gut.length], ['knapp', 'Knapp', knapp.length], ['ohne', 'Ohne Treffer', z.length - treffer.length]];
+      $('#kaF').innerHTML = fl.map(function (f) { return '<button class="chip' + (kaA.filter === f[0] ? ' an' : '') + '" data-f="' + f[0] + '">' + f[1] + ' ' + f[2] + '</button>'; }).join('');
+      $$('#kaF .chip').forEach(function (b) { b.onclick = function () { kaA.filter = b.dataset.f; male(); }; });
+      var q = kaA.q.toLowerCase();
+      var l = z.filter(function (k) {
+        if (q && (k.text + ' ' + k.ean + ' ' + k.quellen.map(function (s) { return s.lieferant + ' ' + s.text; }).join(' ')).toLowerCase().indexOf(q) < 0) return false;
+        return kaA.filter === 'alle' || (kaA.filter === 'treffer' && k.best) || (kaA.filter === 'ohne' && !k.best) || kaA.filter === k.ampel;
+      });
+      var nz = function (v) { return v == null ? -1e9 : v; };
+      var srt = { marge: function (x, y) { return nz(y.marge) - nz(x.marge); }, ertrag: function (x, y) { return y.ertrag - x.ertrag; }, spiel: function (x, y) { return nz(y.spiel) - nz(x.spiel); } }[kaA.sort];
+      if (srt) l = l.slice().sort(srt);
+      var tag = function (k, t) { return k.ampel ? '<span class="zahl-' + k.ampel + '">' + t + '</span>' : t; };
+      $('#kaInhalt').innerHTML = !l.length ? '<div class="leerstand">Keine Artikel für diese Auswahl.</div>' :
+        '<div class="tab-wrap"><table><thead><tr><th></th><th>Artikel (Kundenliste)</th><th class="z">Kunden-EK</th><th>Unser EK · Quelle</th><th class="z">Abstand</th><th class="z">VK-Vorschlag</th><th class="z">Marge</th><th class="z">Lieferbestand</th><th class="z">Rohertrag pot.</th><th></th></tr></thead><tbody>' +
+        l.map(function (k) {
+          var b = k.best, bild = b && b.bild ? b.bild : (k.quellen.filter(function (s) { return s.bild; })[0] || {}).bild;
+          var quelle = !b ? '<span class="grau">kein Angebot mit dieser EAN</span>' :
+            '<b>' + (k.ek == null ? '–' : eurP(k.ek)) + '</b>' + (b.istZiel ? ' <small class="grau">(Ziel-EK)</small>' : '') + '<br><small>' + esc(b.lieferant || '–') + ' · <a href="' + (b.art === 'angebot' ? '#einkauf/angebot/' + esc(b.nr) : '#einkauf/funde') + '">' + esc(b.nr) + (b.art === 'angebot' && b.pos ? ' Pos. ' + esc(b.pos) : '') + '</a></small>' +
+            (k.quellen.length > 1 ? '<br><small class="grau" title="' + esc(k.quellen.slice(1).map(function (s) { return (s.lieferant || s.nr) + ': ' + (s.ek === '' ? '–' : eurP(s.ek)); }).join(' · ')) + '">+ ' + (k.quellen.length - 1) + ' weitere: ' + k.quellen.slice(1, 3).map(function (s) { return esc(s.lieferant || s.nr) + ' ' + (s.ek === '' ? '–' : eurP(s.ek)); }).join(', ') + '</small>' : '');
+          return '<tr><td>' + (bild ? '<img src="' + esc(bild) + '" class="sl-mini" loading="lazy">' : '') + '</td>' +
+            '<td style="min-width:200px"><b>' + esc(k.text || (b ? b.text : '')) + '</b><br><small class="grau">EAN ' + esc(k.ean) + '</small></td>' +
+            '<td class="z">' + (k.kundenEk === '' ? '–' : eurP(k.kundenEk)) + '</td><td>' + quelle + '</td>' +
+            '<td class="z">' + (k.spiel == null ? '–' : eurP(k.spiel) + '<br><small class="grau">' + proz(k.spielP) + '</small>') + '</td>' +
+            '<td class="z"><b>' + (k.vk == null ? '–' : eurP(k.vk)) + '</b></td>' +
+            '<td class="z">' + (k.marge == null ? '–' : tag(k, proz(k.marge)) + '<br><small class="grau">' + eurP(k.stk) + '/Stk</small>') + '</td>' +
+            '<td class="z">' + (b && b.bestand !== '' && b.bestand != null ? zahl(b.bestand) : '–') + '</td>' +
+            '<td class="z">' + (k.ertrag ? eur0(k.ertrag) : '–') + '</td>' +
+            '<td style="white-space:nowrap">' + (b && b.art === 'angebot' ? '<button class="sl-stern' + (b.merk ? ' an' : '') + '" data-merk="' + k.pos + '" title="Im Lieferanten-Angebot merken">' + (b.merk ? '★' : '☆') + '</button>' : '') +
+              (b ? '<button class="btn klein" data-fund="' + k.pos + '" title="Als Fundstück übernehmen (unser EK + VK-Vorschlag)">→ Fund</button>' : '') + '</td></tr>';
+        }).join('') + '</tbody></table></div>';
+      $$('[data-merk]', $('#kaInhalt')).forEach(function (bt) { bt.onclick = function () {
+        var k = finde(bt.dataset.merk), b = k.best; b.merk = !b.merk; male();
+        api('ek_position_merken', { nr: b.nr, pos: b.pos, daten: { merk: b.merk } }).catch(function (e) { b.merk = !b.merk; male(); fehler(e); });
+      }; });
+      $$('[data-fund]', $('#kaInhalt')).forEach(function (bt) { bt.onclick = function () {
+        var k = finde(bt.dataset.fund), b = k.best;
+        var los = function () {
+          ekFundForm({ artikel: k.text || b.text, ean: k.ean, ek: k.ek == null ? '' : k.ek, vk: k.vk == null ? '' : k.vk, lieferant: b.lieferant, lagerLief: b.bestand, karton: b.karton, kartonsPal: b.kartonsPal, proPal: b.proPal, bild: /^data:/.test(b.bild || '') ? b.bild : '', link: b.link || '',
+            infos: 'Aus Kunden-Abgleich ' + a.nr + ' (' + a.kunde + '): Kunden-EK ' + eurP(k.kundenEk) + ', VK-Vorschlag ' + (k.vk == null ? '–' : eurP(k.vk)) + ' (−' + komma(abschlag) + ' %).\nQuelle: ' + (b.art === 'angebot' ? 'Lieferanten-Angebot ' + b.nr + ' Pos. ' + b.pos : 'Fundstück ' + b.nr) }, '',
+            '✓ Aus dem Kunden-Abgleich übernommen: unser EK und VK-Vorschlag sind eingetragen. Menge ergänzen und speichern.');
+        };
+        if (ek.daten) los(); else api('ek_liste').then(function (d) { ek.daten = d; los(); }).catch(fehler);
+      }; });
+    };
+    $('#kaQ').oninput = function () { kaA.q = this.value; male(); };
+    $('#kaSort').onchange = function () { kaA.sort = this.value; male(); };
+    var abT = null;
+    $('#kaAb').oninput = function () {
+      var n = ekZahl(this.value); if (n == null || n < 0 || n >= 100) return;
+      abschlag = n; rechne(); male();
+      clearTimeout(abT); abT = setTimeout(function () { api('ek_speichern', { bereich: 'abgleich', daten: { nr: a.nr, abschlag: n } }).catch(fehler); }, 800);
+    };
+    male();
+  }).catch(function (e) { if (/nicht gefunden/.test(e && e.message || '')) location.hash = '#einkauf/abgleich'; else fehler(e); });
 }
 
 /* ============================ Eigenes Angebot importieren (Beschaffung, BA-…) ============================ */
