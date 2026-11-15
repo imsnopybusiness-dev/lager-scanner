@@ -247,7 +247,7 @@
 <div id="modalRoot"></div>
 
 <script>
-var APP_VERSION = '2026-11-15c';
+var APP_VERSION = '2026-11-15d';
 /* Selbst-Aktualisierung: holt die Seite ohne Cache und lädt neu, wenn es eine neuere Version gibt */
 (function () {
   function pruefen() {
@@ -375,12 +375,13 @@ function frage(titel, text, jaText, gefahr) {
     $('#jaBtn', m.el).onclick = function () { m.el.remove(); ok(true); };
   });
 }
-function pdfZeigen(r) {
+function pdfZeigen(r, extra) {
   var bytes = Uint8Array.from(atob(r.daten), function (c) { return c.charCodeAt(0); });
   var url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
-  modal('<header><h3>' + esc(r.name) + '</h3><div class="aktionen"><a class="btn sek klein" href="' + url + '" download="' + esc(r.name) + '">⬇ Herunterladen</a>' +
+  var m = modal('<header><h3>' + esc(r.name) + '</h3><div class="aktionen">' + (extra ? '<button class="btn sek klein" id="pdfExtra">' + extra.text + '</button>' : '') + '<a class="btn sek klein" href="' + url + '" download="' + esc(r.name) + '">⬇ Herunterladen</a>' +
     '<a class="btn sek klein" href="' + esc(r.url) + '" target="_blank">In Google Drive öffnen</a><button class="btn klein" data-zu>Schließen</button></div></header>' +
     '<iframe src="' + url + '#view=FitH"></iframe>', { breit: true, zu: function () { URL.revokeObjectURL(url); } });
+  if (extra) $('#pdfExtra', m.el).onclick = function () { m.zu(); extra.fn(); };
 }
 function csvLaden(r) {
   var a = document.createElement('a');
@@ -851,9 +852,29 @@ function zeichneBeleg(b, e) {
     mitKnopf(this, api('b_beleg_kopf', { nr: b.nr, daten: d })).then(function (x) { toast('Gespeichert.'); neu(x); }).catch(fehler);
   };
   // Aktionen
+  var lsDatum = function () { return ['Umgewandelt', 'Storniert'].indexOf(b.status) < 0; };
   var pdfHolen = function (btn, art, neuErz) {
     if (!b.positionenListe.length) { toast('Der Beleg hat noch keine Positionen.', true); return; }
-    mitKnopf(btn, belegPdfHolen(b, art, neuErz)).then(function (r) { pdfZeigen(r); if (r.erzeugt) api('b_beleg', { nr: b.nr }).then(neu).catch(function () {}); }).catch(fehler);
+    // Lieferschein neu erzeugen: vorher Lieferdatum (= Versanddatum) abfragen
+    if (art === 'lieferschein' && lsDatum() && (neuErz || !dokFrisch(b, 'Lieferschein'))) { lieferscheinDialog(); return; }
+    mitKnopf(btn, belegPdfHolen(b, art, neuErz)).then(function (r) {
+      pdfZeigen(r, art === 'lieferschein' && lsDatum() ? { text: '📅 Lieferdatum ändern', fn: lieferscheinDialog } : null);
+      if (r.erzeugt) api('b_beleg', { nr: b.nr }).then(neu).catch(function () {});
+    }).catch(fehler);
+  };
+  var lieferscheinDialog = function () {
+    var m = modal('<header><h3>🚚 Lieferschein ' + esc(b.nr) + '</h3><button class="icon-btn" data-zu>✕</button></header><div class="inhalt">' +
+      '<div class="feld"><label>Lieferdatum (Versanddatum)</label><input type="date" id="lsD" value="' + esc(b.lieferdatum || heuteIso()) + '"></div>' +
+      '<p class="grau" style="font-size:12.5px;margin:0">Der Tag, an dem die Ware bei euch rausgeht (Übergabe an Spedition/Paketdienst). Wird im Beleg gespeichert und in die Rechnung übernommen.</p></div>' +
+      '<footer><button class="btn sek" data-zu>Abbrechen</button><button class="btn" id="lsOk">Lieferschein erstellen</button></footer>');
+    $('#lsOk', m.el).onclick = function () {
+      var btn = this, d = $('#lsD', m.el).value;
+      var vorher = d !== (b.lieferdatum || '') ? api('b_beleg_kopf', { nr: b.nr, daten: { lieferdatum: d } }) : Promise.resolve(null);
+      mitKnopf(btn, vorher.then(function () { return api('b_pdf', { art: 'lieferschein', nr: b.nr }); })).then(function (r) {
+        m.zu(); pdfZeigen(r, { text: '📅 Lieferdatum ändern', fn: lieferscheinDialog });
+        api('b_beleg', { nr: b.nr }).then(neu).catch(function () {});
+      }).catch(fehler);
+    };
   };
   $('#pdfBtn').onclick = function () { pdfHolen(this, 'beleg'); };
   $('#lsBtn').onclick = function () { pdfHolen(this, 'lieferschein'); };
