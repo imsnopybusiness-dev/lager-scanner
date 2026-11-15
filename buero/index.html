@@ -145,6 +145,23 @@
   .akq-verlauf { display:flex; flex-direction:column; gap:10px; }
   .akq-e { border-left:3px solid var(--g); background:var(--g3); border-radius:0 10px 10px 0; padding:8px 12px; font-size:14px; }
   .akq-e-kopf { display:flex; gap:10px; align-items:center; margin-bottom:3px; } .akq-e-kopf .grau { font-size:12.5px; } .akq-e-kopf .icon-btn { margin-left:auto; opacity:.5; }
+  .vg-leiste { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:0 0 14px; font-size:13.5px; }
+  .vg-leiste.klein { margin:0; font-size:12.5px; gap:4px; }
+  .vg-chip { display:inline-flex; align-items:center; gap:5px; padding:4px 9px; border:1px solid var(--l); border-radius:999px; background:#fff; color:inherit; text-decoration:none; white-space:nowrap; }
+  a.vg-chip:hover { border-color:var(--g); }
+  .vg-chip.an { border-color:var(--g); background:var(--g2); }
+  .vg-chip.storno { opacity:.5; text-decoration:line-through; }
+  .vg-pfeil { color:var(--m); }
+  .dok-g { border-bottom:1px solid var(--l); padding:6px 0; }
+  .dok-g:last-child { border-bottom:0; }
+  .dok-z { display:flex; align-items:center; gap:4px; }
+  .dok-a { flex:1; display:flex; flex-direction:column; align-items:flex-start; gap:1px; text-align:left; background:none; border:0; padding:5px 6px; border-radius:8px; cursor:pointer; font:inherit; color:inherit; }
+  .dok-a:hover { background:var(--g3); }
+  .dok-a small { color:var(--m); font-size:12px; }
+  .dok-a.alt { flex-direction:row; justify-content:space-between; width:100%; font-size:12.5px; padding:3px 6px; }
+  .dok-g.hier .dok-a b { color:var(--g); }
+  .dok-g details { margin:0 0 0 6px; font-size:12.5px; } .dok-g summary { cursor:pointer; color:var(--m); padding:2px 0; }
+  .dok-warn { font-size:12px; color:#8A5A00; background:#FFF1D6; border-radius:6px; padding:4px 8px; margin:2px 0 4px; }
   .reiter { display:flex; gap:6px; margin-bottom:14px; flex-wrap:wrap; }
   .reiter a { padding:9px 14px; border-radius:10px; background:var(--w); box-shadow:var(--sh); color:var(--t); text-decoration:none; font-weight:600; display:flex; align-items:center; gap:8px; }
   .reiter a span { background:var(--g3); color:var(--m); border-radius:99px; padding:1px 8px; font-size:12px; }
@@ -230,7 +247,7 @@
 <div id="modalRoot"></div>
 
 <script>
-var APP_VERSION = '2026-11-15a';
+var APP_VERSION = '2026-11-15b';
 /* Selbst-Aktualisierung: holt die Seite ohne Cache und lädt neu, wenn es eine neuere Version gibt */
 (function () {
   function pruefen() {
@@ -615,34 +632,97 @@ function artikelForm(ean, vorgabe) {
 }
 
 /* ============================ Belege ============================ */
-var belFilter = { typ: '', status: '', q: '' };
+var belFilter = { typ: '', status: '', q: '', ansicht: 'vorgang' };
+var TYP_REIHE = { Angebot: 0, Proforma: 1, Auftrag: 2, Rechnung: 3 };
+var TYP_KURZ = { Angebot: 'Angebot', Proforma: 'Proforma', Auftrag: 'Auftragsbest.', Rechnung: 'Rechnung' };
 SEITEN.belege = function (arg) {
   if (arg) belFilter.status = arg;
   api('b_belege').then(function (l) {
-    $('#main').innerHTML = kopf('Angebote & Belege', l.length + ' Belege', '<a class="btn sek" href="#import">📥 Eigenes Angebot importieren</a><button class="btn sek" onclick="neuerBeleg(\'Proforma\')">＋ Proforma</button><button class="btn" onclick="neuerBeleg(\'Angebot\')">＋ Neues Angebot</button>') +
-      '<div class="karte"><div class="filter"><input type="search" id="bQ" placeholder="Suchen nach Nr., Kunde, Notiz …" value="' + esc(belFilter.q) + '">' +
+    // Vorgänge: Angebot → Auftragsbestätigung/Proforma → Rechnung gehören zusammen
+    var gruppen = [], idx = {};
+    l.forEach(function (b) { var v = b.vorgang || b.nr; if (!(v in idx)) { idx[v] = gruppen.length; gruppen.push({ nr: v, belege: [] }); } gruppen[idx[v]].belege.push(b); });
+    gruppen.forEach(function (g) {
+      g.belege.sort(function (x, y) { return (TYP_REIHE[x.typ] || 0) - (TYP_REIHE[y.typ] || 0) || (x.datum < y.datum ? -1 : x.datum > y.datum ? 1 : 0); });
+      var gueltig = g.belege.filter(function (b) { return b.status !== 'Storniert'; });
+      g.akt = (gueltig.length ? gueltig : g.belege)[(gueltig.length ? gueltig : g.belege).length - 1];
+    });
+    $('#main').innerHTML = kopf('Angebote & Belege', gruppen.length + ' Vorgänge · ' + l.length + ' Belege', '<a class="btn sek" href="#import">📥 Eigenes Angebot importieren</a><button class="btn sek" onclick="neuerBeleg(\'Proforma\')">＋ Proforma</button><button class="btn" onclick="neuerBeleg(\'Angebot\')">＋ Neues Angebot</button>') +
+      '<div class="karte"><div class="filter"><div class="chips"><button class="chip' + (belFilter.ansicht === 'vorgang' ? ' an' : '') + '" data-ans="vorgang">Vorgänge</button><button class="chip' + (belFilter.ansicht === 'einzeln' ? ' an' : '') + '" data-ans="einzeln">Einzelbelege</button></div>' +
+      '<input type="search" id="bQ" placeholder="Suchen nach Nr., Kunde, Notiz …" value="' + esc(belFilter.q) + '">' +
       '<select id="bTyp">' + opt(['Angebot', 'Proforma', 'Auftrag', 'Rechnung'], belFilter.typ, 'Alle Typen') + '</select>' +
       '<select id="bStatus">' + opt(['Entwurf', 'Offen', 'Angenommen', 'Geliefert', 'Umgewandelt', 'Abgelehnt', 'Storniert'], belFilter.status, 'Alle Status') + '</select></div>' +
-      '<div class="tab-wrap"><table><thead><tr><th>Nr.</th><th>Typ</th><th>Datum</th><th>Kunde</th><th>Status</th><th>Gültig bis</th><th class="z">Pos.</th><th class="z">Summe netto</th><th>Notiz</th></tr></thead><tbody id="bBody"></tbody></table></div></div>';
+      '<div class="tab-wrap"><table><thead id="bHead"></thead><tbody id="bBody"></tbody></table></div></div>';
+    var heute = heuteIso();
+    var sucht = function (b, q) { return (b.nr + ' ' + b.firma + ' ' + b.notiz + ' ' + b.kunde).toLowerCase().indexOf(q) >= 0; };
     var zeichne = function () {
       var q = belFilter.q.toLowerCase();
-      var x = l.filter(function (b) {
-        return (!belFilter.typ || b.typ === belFilter.typ) && (!belFilter.status || b.status === belFilter.status) &&
-          (!q || (b.nr + ' ' + b.firma + ' ' + b.notiz + ' ' + b.kunde).toLowerCase().indexOf(q) >= 0);
-      });
-      var heute = heuteIso();
-      $('#bBody').innerHTML = x.length ? x.map(function (b) {
-        var abgelaufen = b.typ === 'Angebot' && b.status === 'Offen' && b.gueltig && b.gueltig < heute;
-        return '<tr class="klick" onclick="location.hash=\'#beleg/' + esc(b.nr) + '\'"><td><b>' + esc(b.nr) + '</b></td><td>' + esc(b.typ) + '</td><td>' + datum(b.datum) + '</td><td>' + esc(b.firma || '–') + '</td><td>' + statusBadge(b.status) + '</td>' +
-          '<td' + (abgelaufen ? ' class="zahl-leer"' : '') + '>' + datum(b.gueltig) + (abgelaufen ? ' ⏰' : '') + '</td><td class="z">' + b.positionen + '</td><td class="z">' + eur(b.summe) + '</td><td class="grau">' + esc(b.notiz) + '</td></tr>';
-      }).join('') : '<tr><td colspan="9" class="leerstand">Keine Belege. Legt oben rechts ein neues Angebot an.</td></tr>';
+      if (belFilter.ansicht === 'vorgang') {
+        $('#bHead').innerHTML = '<tr><th>Kunde</th><th>Vorgang</th><th>Stand</th><th>Datum</th><th class="z">Summe netto</th></tr>';
+        var x = gruppen.filter(function (g) {
+          return (!belFilter.typ || g.belege.some(function (b) { return b.typ === belFilter.typ; })) && (!belFilter.status || g.akt.status === belFilter.status) &&
+            (!q || g.belege.some(function (b) { return sucht(b, q); }));
+        });
+        $('#bBody').innerHTML = x.length ? x.map(function (g) {
+          var a = g.akt, abgelaufen = a.typ === 'Angebot' && a.status === 'Offen' && a.gueltig && a.gueltig < heute;
+          var notiz = (g.belege[0].notiz || '').replace(/\s*\|?\s*→ [A-Z]{2}-\d+/g, '').trim();
+          return '<tr class="klick" data-nr="' + esc(a.nr) + '"><td><b>' + esc(a.firma || '–') + '</b>' + (notiz ? '<br><small class="grau">' + esc(notiz.slice(0, 90)) + '</small>' : '') + '</td>' +
+            '<td><div class="vg-leiste klein">' + g.belege.map(function (b) {
+              return '<a class="vg-chip' + (b === a ? ' an' : '') + (b.status === 'Storniert' ? ' storno' : '') + '" href="#beleg/' + esc(b.nr) + '" title="' + esc(b.typ + ' · ' + b.status) + '"><b>' + esc(b.nr) + '</b> ' + esc(TYP_KURZ[b.typ] || b.typ) + '</a>';
+            }).join('<span class="vg-pfeil">→</span>') + '</div></td>' +
+            '<td>' + esc(TYP_KURZ[a.typ] || a.typ) + ' ' + statusBadge(a.status) + (abgelaufen ? ' <span class="zahl-leer">⏰ abgelaufen</span>' : '') + '</td>' +
+            '<td>' + datum(a.datum) + '</td><td class="z">' + eur(a.summe) + '</td></tr>';
+        }).join('') : '<tr><td colspan="5" class="leerstand">Keine Vorgänge gefunden.</td></tr>';
+        $$('#bBody tr[data-nr]').forEach(function (tr) { tr.onclick = function (ev) { if (ev.target.closest('a')) return; location.hash = '#beleg/' + tr.dataset.nr; }; });
+      } else {
+        $('#bHead').innerHTML = '<tr><th>Nr.</th><th>Typ</th><th>Datum</th><th>Kunde</th><th>Status</th><th>Gültig bis</th><th class="z">Pos.</th><th class="z">Summe netto</th><th>Notiz</th></tr>';
+        var y = l.filter(function (b) { return (!belFilter.typ || b.typ === belFilter.typ) && (!belFilter.status || b.status === belFilter.status) && (!q || sucht(b, q)); });
+        $('#bBody').innerHTML = y.length ? y.map(function (b) {
+          var abgelaufen = b.typ === 'Angebot' && b.status === 'Offen' && b.gueltig && b.gueltig < heute;
+          return '<tr class="klick" onclick="location.hash=\'#beleg/' + esc(b.nr) + '\'"><td><b>' + esc(b.nr) + '</b></td><td>' + esc(b.typ) + '</td><td>' + datum(b.datum) + '</td><td>' + esc(b.firma || '–') + '</td><td>' + statusBadge(b.status) + '</td>' +
+            '<td' + (abgelaufen ? ' class="zahl-leer"' : '') + '>' + datum(b.gueltig) + (abgelaufen ? ' ⏰' : '') + '</td><td class="z">' + b.positionen + '</td><td class="z">' + eur(b.summe) + '</td><td class="grau">' + esc(b.notiz) + '</td></tr>';
+        }).join('') : '<tr><td colspan="9" class="leerstand">Keine Belege. Legt oben rechts ein neues Angebot an.</td></tr>';
+      }
     };
+    $$('[data-ans]').forEach(function (c) { c.onclick = function () { belFilter.ansicht = c.dataset.ans; $$('[data-ans]').forEach(function (x) { x.classList.toggle('an', x === c); }); zeichne(); }; });
     $('#bQ').oninput = function () { belFilter.q = this.value; zeichne(); };
     $('#bTyp').onchange = function () { belFilter.typ = this.value; zeichne(); };
     $('#bStatus').onchange = function () { belFilter.status = this.value; zeichne(); };
     zeichne();
   }).catch(fehler);
 };
+// Gespeicherte PDFs je Beleg (alle Versionen) – öffnen statt jedes Mal neu erzeugen
+var DOK_NAME = { Angebot: 'Angebot', Proforma: 'Proforma-Rechnung', Auftrag: 'Auftragsbestätigung', Rechnung: 'Rechnung', Lieferschein: 'Lieferschein' };
+function dokArt(b, art) { return art === 'lieferschein' ? 'Lieferschein' : b.typ; }
+function dokFrisch(b, dart) {
+  var d = (b.dokumente || []).filter(function (x) { return x.nr === b.nr && x.art === dart; })[0];
+  return d && !(b.geaendert && b.geaendert > d.erstellt) ? d : null;
+}
+function belegPdfHolen(b, art, neuErz) {
+  var d = !neuErz && dokFrisch(b, dokArt(b, art));
+  if (d) return api('b_dokument', { id: d.id }).then(function (r) { r.erzeugt = false; return r; });
+  return api('b_pdf', { art: art, nr: b.nr }).then(function (r) { r.erzeugt = true; return r; });
+}
+function dokZeit(s) { return s ? datum(s.slice(0, 10)) + ' ' + s.slice(11, 16) : ''; }
+function vorgangLeiste(b) {
+  var k = b.kette || []; if (k.length < 2) return '';
+  return '<div class="vg-leiste"><span class="grau">Vorgang:</span>' + k.map(function (x) {
+    var inhalt = '<b>' + esc(x.nr) + '</b> ' + esc(TYP_KURZ[x.typ] || x.typ) + ' ' + statusBadge(x.status);
+    return x.nr === b.nr ? '<span class="vg-chip an">' + inhalt + '</span>' : '<a class="vg-chip" href="#beleg/' + esc(x.nr) + '">' + inhalt + '</a>';
+  }).join('<span class="vg-pfeil">→</span>') + '</div>';
+}
+function dokKarte(b) {
+  var gruppen = [], idx = {}, reihe = (b.kette || []).map(function (k) { return k.nr; });
+  (b.dokumente || []).forEach(function (d) { var k = d.nr + '|' + d.art; if (!(k in idx)) { idx[k] = gruppen.length; gruppen.push({ nr: d.nr, art: d.art, v: [] }); } gruppen[idx[k]].v.push(d); });
+  var rang = function (g) { return (g.nr === b.nr ? -100 : reihe.indexOf(g.nr)) * 2 + (g.art === 'Lieferschein' ? 1 : 0); };
+  gruppen.sort(function (x, y) { return rang(x) - rang(y); });
+  return '<div class="karte"><h2>📄 Dokumente</h2>' + (gruppen.length ? gruppen.map(function (g) {
+    var d = g.v[0], aelter = g.v.slice(1), hier = g.nr === b.nr, veraltet = hier && b.geaendert && b.geaendert > d.erstellt;
+    return '<div class="dok-g' + (hier ? ' hier' : '') + '"><div class="dok-z"><button class="dok-a" data-dok="' + esc(d.id) + '"><span><b>' + esc(DOK_NAME[g.art] || g.art) + '</b> ' + esc(g.nr) + '</span><small>' + dokZeit(d.erstellt) + (d.von ? ' · ' + esc(d.von) : '') + '</small></button>' +
+      (hier ? '<button class="icon-btn" title="Neu erzeugen" data-neuerz="' + (g.art === 'Lieferschein' ? 'lieferschein' : 'beleg') + '">↻</button>' : '') + '</div>' +
+      (veraltet ? '<div class="dok-warn">⚠️ Beleg danach geändert – mit ↻ neu erzeugen</div>' : '') +
+      (aelter.length ? '<details><summary>' + aelter.length + ' ältere Version' + (aelter.length > 1 ? 'en' : '') + '</summary>' + aelter.map(function (x) { return '<button class="dok-a alt" data-dok="' + esc(x.id) + '"><span>' + dokZeit(x.erstellt) + '</span><small>' + esc(x.von || '') + '</small></button>'; }).join('') + '</details>' : '') + '</div>';
+  }).join('') : '<div class="grau" style="font-size:12.5px">Noch keine PDFs. Mit „📄 PDF erstellen“ oben wird es erzeugt und hier abgelegt – danach öffnet es sich sofort, ohne neu erzeugt zu werden.</div>') + '</div>';
+}
 function neuerBeleg(typ, kunde) {
   einst(true).then(function (e) {
     var m = modal('<header><h3>Neues ' + esc(typ === 'Angebot' ? 'Angebot' : typ) + '</h3><button class="icon-btn" data-zu>✕</button></header><div class="inhalt">' +
@@ -668,11 +748,12 @@ function zeichneBeleg(b, e) {
   var mw = b.summe * b.mwst, roh = b.summe - b.ekSumme;
   var titelTyp = { Angebot: 'Angebot', Proforma: 'Proforma-Rechnung', Auftrag: 'Auftragsbestätigung', Rechnung: 'Rechnung' }[b.typ] || b.typ;
   $('#main').innerHTML = kopf(esc(titelTyp) + ' ' + esc(b.nr) + ' ' + statusBadge(b.status), '<a href="#belege">← alle Belege</a>' + (b.notiz ? ' · ' + esc(b.notiz) : ''),
-    '<button class="btn sek" id="pdfBtn">📄 PDF-Vorschau</button><button class="btn sek" id="mailBtn">✉️ Per E-Mail</button><button class="btn sek" id="lsBtn">🚚 Lieferschein</button>' +
+    '<button class="btn sek" id="pdfBtn">📄 ' + (dokFrisch(b, b.typ) ? 'PDF öffnen' : 'PDF erstellen') + '</button><button class="btn sek" id="mailBtn">✉️ Per E-Mail</button><button class="btn sek" id="lsBtn">🚚 Lieferschein' + (dokFrisch(b, 'Lieferschein') ? '' : ' erstellen') + '</button>' +
     (b.typ === 'Angebot' && bearbeitbar && b.status !== 'Angenommen' ? '<button class="btn sek" id="resBtn">🔒 Angenommen – Ware reservieren</button>' : '') +
     (b.typ === 'Angebot' && bearbeitbar ? '<button class="btn sek" id="abBtn">📝 Auftragsbestätigung</button><button class="btn sek" id="umBtn">➡ Proforma (Vorkasse)</button>' : '') +
     ((b.typ === 'Angebot' || b.typ === 'Auftrag') && bearbeitbar ? '<button class="btn" id="reBtn">🧾 Rechnung – Ware verschickt</button>' : '') +
     (b.typ !== 'Angebot' && b.typ !== 'Auftrag' && b.status === 'Angenommen' ? '<button class="btn" id="gelBtn">✓ Als geliefert markieren</button>' : '')) +
+    vorgangLeiste(b) +
     (b.typ === 'Angebot' && b.status === 'Angenommen' ? '<div class="info" style="margin-bottom:14px">🔒 Angebot angenommen – die Ware ist für ' + esc(b.firma || 'den Kunden') + ' reserviert. Kunde hat bestellt: <b>Auftragsbestätigung</b> · wenn verschickt: <b>Rechnung – Ware verschickt</b> · bei Vorkasse: <b>Proforma</b>.</div>' : '') +
     (b.typ === 'Auftrag' && bearbeitbar ? '<div class="info" style="margin-bottom:14px">📝 Auftrag bestätigt – die Ware ist für ' + esc(b.firma || 'den Kunden') + ' reserviert. Bestätigung mit <b>✉️ Per E-Mail</b> schicken; wenn die Ware raus ist: <b>Rechnung – Ware verschickt</b>.</div>' : '') +
     '<div class="raster r21" style="grid-template-columns:minmax(0,1fr) 310px"><div>' +
@@ -696,7 +777,7 @@ function zeichneBeleg(b, e) {
     '<div class="summen" style="margin-top:16px"><div><span>Summe netto</span><b>' + eur(b.summe) + '</b></div><div class="grau"><span>MwSt ' + Math.round(b.mwst * 100) + ' %</span><span>' + eur(mw) + '</span></div>' +
     '<div class="gross"><span>Gesamt brutto</span><span>' + eur(b.summe + mw) + '</span></div>' +
     '<div class="grau" style="font-size:12.5px"><span>Rohertrag (netto − EK)</span><span>' + eur(roh) + (b.summe ? ' · ' + proz(roh / b.summe) : '') + '</span></div></div></div>' +
-    '</div><div>' +
+    '</div><div>' + dokKarte(b) +
     '<div class="karte"><h2>Beleg</h2>' +
     '<div class="feld"><label>Kunde</label><select id="bkKunde"' + (bearbeitbar ? '' : ' disabled') + '>' + opt(e.kunden.map(function (k) { return { v: k.nr, t: k.firma + ' (' + k.nr + ')' }; }), b.kunde, '– kein Kunde –') + '</select></div>' +
     '<div class="fg"><div class="feld"><label>Datum</label><input type="date" id="bkDatum" value="' + esc(b.datum) + '"' + (['Umgewandelt', 'Storniert'].indexOf(b.status) < 0 ? '' : ' disabled') + '></div>' +
@@ -767,11 +848,14 @@ function zeichneBeleg(b, e) {
     mitKnopf(this, api('b_beleg_kopf', { nr: b.nr, daten: d })).then(function (x) { toast('Gespeichert.'); neu(x); }).catch(fehler);
   };
   // Aktionen
-  $('#pdfBtn').onclick = function () {
+  var pdfHolen = function (btn, art, neuErz) {
     if (!b.positionenListe.length) { toast('Der Beleg hat noch keine Positionen.', true); return; }
-    mitKnopf(this, api('b_pdf', { art: 'beleg', nr: b.nr })).then(pdfZeigen).catch(fehler);
+    mitKnopf(btn, belegPdfHolen(b, art, neuErz)).then(function (r) { pdfZeigen(r); if (r.erzeugt) api('b_beleg', { nr: b.nr }).then(neu).catch(function () {}); }).catch(fehler);
   };
-  $('#lsBtn').onclick = function () { mitKnopf(this, api('b_pdf', { art: 'lieferschein', nr: b.nr })).then(pdfZeigen).catch(fehler); };
+  $('#pdfBtn').onclick = function () { pdfHolen(this, 'beleg'); };
+  $('#lsBtn').onclick = function () { pdfHolen(this, 'lieferschein'); };
+  $$('[data-dok]').forEach(function (x) { x.onclick = function () { mitKnopf(x, api('b_dokument', { id: x.dataset.dok })).then(pdfZeigen).catch(fehler); }; });
+  $$('[data-neuerz]').forEach(function (x) { x.onclick = function () { pdfHolen(x, x.dataset.neuerz, true); }; });
   if ($('#resBtn')) $('#resBtn').onclick = function () {
     var btn = this;
     frage('Angebot angenommen?', '<p>Die Positionen von <b>' + esc(b.nr) + '</b> werden für den Kunden <b>reserviert</b> – sie zählen dann nicht mehr als verfügbar.</p><p class="grau">Rechnung oder Proforma erstellst du später, z. B. wenn die Ware verschickt wird.</p>', 'Reservieren')
@@ -824,7 +908,7 @@ function zeichneBeleg(b, e) {
 var MAIL_ART = { Angebot: 'unser Angebot', Proforma: 'unsere Proforma-Rechnung', Auftrag: 'unsere Auftragsbestätigung', Rechnung: 'unsere Rechnung' };
 function belegMail(b, btn) {
   knopfLaedt(btn, true);
-  Promise.all([api('b_kunden'), api('b_pdf', { art: 'beleg', nr: b.nr }), einst()]).then(function (r) {
+  Promise.all([api('b_kunden'), belegPdfHolen(b, 'beleg'), einst()]).then(function (r) {
     knopfLaedt(btn, false);
     var k = r[0].filter(function (x) { return x.nr === b.kunde; })[0] || {}, pdf = r[1], e = r[2];
     var firmaWir = ((e.felder || []).filter(function (f) { return f.name === 'Firmenname'; })[0] || {}).wert || 'AHGI GbR';
