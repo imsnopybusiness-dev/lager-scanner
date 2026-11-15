@@ -247,7 +247,7 @@
 <div id="modalRoot"></div>
 
 <script>
-var APP_VERSION = '2026-11-15d';
+var APP_VERSION = '2026-11-15e';
 /* Selbst-Aktualisierung: holt die Seite ohne Cache und lädt neu, wenn es eine neuere Version gibt */
 (function () {
   function pruefen() {
@@ -700,8 +700,12 @@ function dokFrisch(b, dart) {
 }
 function belegPdfHolen(b, art, neuErz) {
   var d = !neuErz && dokFrisch(b, dokArt(b, art));
-  if (d) return api('b_dokument', { id: d.id }).then(function (r) { r.erzeugt = false; return r; });
-  return api('b_pdf', { art: art, nr: b.nr }).then(function (r) { r.erzeugt = true; return r; });
+  var erzeugen = function () { return api('b_pdf', { art: art, nr: b.nr }).then(function (r) { r.erzeugt = true; return r; }); };
+  if (d) return api('b_dokument', { id: d.id }).then(function (r) { r.erzeugt = false; return r; }, function (e) {
+    if (/Papierkorb|nicht gefunden/.test(e && e.message || '')) { b.dokumente = (b.dokumente || []).filter(function (x) { return x.id !== d.id; }); return erzeugen(); }
+    throw e;
+  });
+  return erzeugen();
 }
 function dokZeit(s) { return s ? datum(s.slice(0, 10)) + ' ' + s.slice(11, 16) : ''; }
 function vorgangLeiste(b) {
@@ -719,9 +723,10 @@ function dokKarte(b) {
   return '<div class="karte"><h2>📄 Dokumente</h2>' + (gruppen.length ? gruppen.map(function (g) {
     var d = g.v[0], aelter = g.v.slice(1), hier = g.nr === b.nr, veraltet = hier && b.geaendert && b.geaendert > d.erstellt;
     return '<div class="dok-g' + (hier ? ' hier' : '') + '"><div class="dok-z"><button class="dok-a" data-dok="' + esc(d.id) + '"><span><b>' + esc(DOK_NAME[g.art] || g.art) + '</b> ' + esc(g.nr) + '</span><small>' + dokZeit(d.erstellt) + (d.von ? ' · ' + esc(d.von) : '') + '</small></button>' +
-      (hier ? '<button class="icon-btn" title="Neu erzeugen" data-neuerz="' + (g.art === 'Lieferschein' ? 'lieferschein' : 'beleg') + '">↻</button>' : '') + '</div>' +
+      (hier ? '<button class="icon-btn" title="Neu erzeugen" data-neuerz="' + (g.art === 'Lieferschein' ? 'lieferschein' : 'beleg') + '">↻</button>' : '') +
+      '<button class="icon-btn" title="Dieses PDF löschen" data-dokweg="' + esc(d.id) + '">🗑</button></div>' +
       (veraltet ? '<div class="dok-warn">⚠️ Beleg danach geändert – mit ↻ neu erzeugen</div>' : '') +
-      (aelter.length ? '<details><summary>' + aelter.length + ' ältere Version' + (aelter.length > 1 ? 'en' : '') + '</summary>' + aelter.map(function (x) { return '<button class="dok-a alt" data-dok="' + esc(x.id) + '"><span>' + dokZeit(x.erstellt) + '</span><small>' + esc(x.von || '') + '</small></button>'; }).join('') + '</details>' : '') + '</div>';
+      (aelter.length ? '<details><summary>' + aelter.length + ' ältere Version' + (aelter.length > 1 ? 'en' : '') + '</summary>' + aelter.map(function (x) { return '<div class="dok-z"><button class="dok-a alt" data-dok="' + esc(x.id) + '"><span>' + dokZeit(x.erstellt) + '</span><small>' + esc(x.von || '') + '</small></button><button class="icon-btn" title="Diese Version löschen" data-dokweg="' + esc(x.id) + '">🗑</button></div>'; }).join('') + '</details>' : '') + '</div>';
   }).join('') : '<div class="grau" style="font-size:12.5px">Noch keine PDFs. Mit „📄 PDF erstellen“ oben wird es erzeugt und hier abgelegt – danach öffnet es sich sofort, ohne neu erzeugt zu werden.</div>') + '</div>';
 }
 function neuerBeleg(typ, kunde) {
@@ -856,7 +861,14 @@ function zeichneBeleg(b, e) {
   var pdfHolen = function (btn, art, neuErz) {
     if (!b.positionenListe.length) { toast('Der Beleg hat noch keine Positionen.', true); return; }
     // Lieferschein neu erzeugen: vorher Lieferdatum (= Versanddatum) abfragen
-    if (art === 'lieferschein' && lsDatum() && (neuErz || !dokFrisch(b, 'Lieferschein'))) { lieferscheinDialog(); return; }
+    if (art === 'lieferschein' && lsDatum()) {
+      var lsd = dokFrisch(b, 'Lieferschein');
+      if (neuErz || !lsd) { lieferscheinDialog(); return; }
+      mitKnopf(btn, api('b_dokument', { id: lsd.id })).then(function (r) { pdfZeigen(r, { text: '📅 Lieferdatum ändern', fn: lieferscheinDialog }); }).catch(function (er) {
+        if (/Papierkorb|nicht gefunden/.test(er && er.message || '')) { b.dokumente = (b.dokumente || []).filter(function (x) { return x.id !== lsd.id; }); lieferscheinDialog(); } else fehler(er);
+      });
+      return;
+    }
     mitKnopf(btn, belegPdfHolen(b, art, neuErz)).then(function (r) {
       pdfZeigen(r, art === 'lieferschein' && lsDatum() ? { text: '📅 Lieferdatum ändern', fn: lieferscheinDialog } : null);
       if (r.erzeugt) api('b_beleg', { nr: b.nr }).then(neu).catch(function () {});
@@ -878,7 +890,16 @@ function zeichneBeleg(b, e) {
   };
   $('#pdfBtn').onclick = function () { pdfHolen(this, 'beleg'); };
   $('#lsBtn').onclick = function () { pdfHolen(this, 'lieferschein'); };
-  $$('[data-dok]').forEach(function (x) { x.onclick = function () { mitKnopf(x, api('b_dokument', { id: x.dataset.dok })).then(pdfZeigen).catch(fehler); }; });
+  $$('[data-dok]').forEach(function (x) { x.onclick = function () {
+    mitKnopf(x, api('b_dokument', { id: x.dataset.dok })).then(pdfZeigen).catch(function (er) {
+      if (/Papierkorb/.test(er && er.message || '')) { toast('Dieses PDF liegt im Papierkorb – es wurde aus der Liste entfernt.', true); api('b_beleg', { nr: b.nr }).then(neu).catch(function () {}); } else fehler(er);
+    });
+  }; });
+  $$('[data-dokweg]').forEach(function (x) { x.onclick = function () {
+    frage('PDF löschen?', '<p>Dieses PDF wird aus der Liste entfernt und in Google Drive in den Papierkorb verschoben (dort 30 Tage wiederherstellbar).</p>', 'Löschen', true).then(function (ja) {
+      if (ja) mitKnopf(x, api('b_dokument_weg', { id: x.dataset.dokweg })).then(function () { toast('PDF gelöscht.'); return api('b_beleg', { nr: b.nr }); }).then(neu).catch(fehler);
+    });
+  }; });
   $$('[data-neuerz]').forEach(function (x) { x.onclick = function () { pdfHolen(x, x.dataset.neuerz, true); }; });
   if ($('#resBtn')) $('#resBtn').onclick = function () {
     var btn = this;
