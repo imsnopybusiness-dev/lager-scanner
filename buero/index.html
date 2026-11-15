@@ -247,7 +247,7 @@
 <div id="modalRoot"></div>
 
 <script>
-var APP_VERSION = '2026-11-15b';
+var APP_VERSION = '2026-11-15c';
 /* Selbst-Aktualisierung: holt die Seite ohne Cache und lädt neu, wenn es eine neuere Version gibt */
 (function () {
   function pruefen() {
@@ -782,6 +782,8 @@ function zeichneBeleg(b, e) {
     '<div class="feld"><label>Kunde</label><select id="bkKunde"' + (bearbeitbar ? '' : ' disabled') + '>' + opt(e.kunden.map(function (k) { return { v: k.nr, t: k.firma + ' (' + k.nr + ')' }; }), b.kunde, '– kein Kunde –') + '</select></div>' +
     '<div class="fg"><div class="feld"><label>Datum</label><input type="date" id="bkDatum" value="' + esc(b.datum) + '"' + (['Umgewandelt', 'Storniert'].indexOf(b.status) < 0 ? '' : ' disabled') + '></div>' +
     '<div class="feld"><label>' + (b.typ === 'Angebot' ? 'Gültig bis' : 'Typ') + '</label><input disabled value="' + (b.typ === 'Angebot' ? datum(b.gueltig) : esc(b.typ)) + '"></div></div>' +
+    '<div class="feld"><label>' + (b.typ === 'Auftrag' || b.typ === 'Angebot' ? 'Liefertermin' : 'Lieferdatum') + '</label><input type="date" id="bkLiefer" value="' + esc(b.lieferdatum || '') + '"' + (['Umgewandelt', 'Storniert'].indexOf(b.status) < 0 ? '' : ' disabled') + '>' +
+      '<div class="grau" style="font-size:12px;margin-top:3px">' + (b.typ === 'Rechnung' ? 'Steht auf der Rechnung und dem Lieferschein. Leer = Rechnungsdatum.' : b.typ === 'Auftrag' ? 'Erscheint als „Liefertermin“ auf der Auftragsbestätigung und als Lieferdatum auf dem Lieferschein; wird in die Rechnung übernommen.' : 'Steht auf dem Lieferschein. Leer = Tag, an dem der Lieferschein erstellt wird.') + '</div></div>' +
     '<div class="feld"><label>Status</label><select id="bkStatus">' + opt(e.status, b.status) + '</select></div>' +
     '<div class="info" style="margin:-4px 0 12px;font-size:12.5px">Entwurf = in Arbeit · <b>Offen</b> = beim Kunden, reserviert Ware · <b>Angenommen</b> = zugesagt, reserviert · <b>Geliefert</b> = bucht vom Bestand ab</div>' +
     '<div class="feld"><label>Notiz (intern)</label><textarea id="bkNotiz">' + esc(b.notiz) + '</textarea></div>' +
@@ -845,6 +847,7 @@ function zeichneBeleg(b, e) {
     var d = { status: $('#bkStatus').value, notiz: $('#bkNotiz').value };
     if (!$('#bkKunde').disabled) d.kunde = $('#bkKunde').value;
     if (!$('#bkDatum').disabled) d.datum = $('#bkDatum').value;
+    if (!$('#bkLiefer').disabled && $('#bkLiefer').value !== (b.lieferdatum || '')) d.lieferdatum = $('#bkLiefer').value;
     mitKnopf(this, api('b_beleg_kopf', { nr: b.nr, daten: d })).then(function (x) { toast('Gespeichert.'); neu(x); }).catch(fehler);
   };
   // Aktionen
