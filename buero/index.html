@@ -230,7 +230,7 @@
 <div id="modalRoot"></div>
 
 <script>
-var APP_VERSION = '2026-11-13d';
+var APP_VERSION = '2026-11-15a';
 /* Selbst-Aktualisierung: holt die Seite ohne Cache und lädt neu, wenn es eine neuere Version gibt */
 (function () {
   function pruefen() {
@@ -668,11 +668,13 @@ function zeichneBeleg(b, e) {
   var mw = b.summe * b.mwst, roh = b.summe - b.ekSumme;
   var titelTyp = { Angebot: 'Angebot', Proforma: 'Proforma-Rechnung', Auftrag: 'Auftragsbestätigung', Rechnung: 'Rechnung' }[b.typ] || b.typ;
   $('#main').innerHTML = kopf(esc(titelTyp) + ' ' + esc(b.nr) + ' ' + statusBadge(b.status), '<a href="#belege">← alle Belege</a>' + (b.notiz ? ' · ' + esc(b.notiz) : ''),
-    '<button class="btn sek" id="pdfBtn">📄 PDF-Vorschau</button><button class="btn sek" id="lsBtn">🚚 Lieferschein</button>' +
+    '<button class="btn sek" id="pdfBtn">📄 PDF-Vorschau</button><button class="btn sek" id="mailBtn">✉️ Per E-Mail</button><button class="btn sek" id="lsBtn">🚚 Lieferschein</button>' +
     (b.typ === 'Angebot' && bearbeitbar && b.status !== 'Angenommen' ? '<button class="btn sek" id="resBtn">🔒 Angenommen – Ware reservieren</button>' : '') +
-    (b.typ === 'Angebot' && bearbeitbar ? '<button class="btn sek" id="umBtn">➡ Proforma (Vorkasse)</button><button class="btn" id="reBtn">🧾 Rechnung – Ware verschickt</button>' : '') +
-    (b.typ !== 'Angebot' && b.status === 'Angenommen' ? '<button class="btn" id="gelBtn">✓ Als geliefert markieren</button>' : '')) +
-    (b.typ === 'Angebot' && b.status === 'Angenommen' ? '<div class="info" style="margin-bottom:14px">🔒 Angebot angenommen – die Ware ist für ' + esc(b.firma || 'den Kunden') + ' reserviert. Wenn verschickt: <b>Rechnung – Ware verschickt</b>, bei Vorkasse: <b>Proforma</b>.</div>' : '') +
+    (b.typ === 'Angebot' && bearbeitbar ? '<button class="btn sek" id="abBtn">📝 Auftragsbestätigung</button><button class="btn sek" id="umBtn">➡ Proforma (Vorkasse)</button>' : '') +
+    ((b.typ === 'Angebot' || b.typ === 'Auftrag') && bearbeitbar ? '<button class="btn" id="reBtn">🧾 Rechnung – Ware verschickt</button>' : '') +
+    (b.typ !== 'Angebot' && b.typ !== 'Auftrag' && b.status === 'Angenommen' ? '<button class="btn" id="gelBtn">✓ Als geliefert markieren</button>' : '')) +
+    (b.typ === 'Angebot' && b.status === 'Angenommen' ? '<div class="info" style="margin-bottom:14px">🔒 Angebot angenommen – die Ware ist für ' + esc(b.firma || 'den Kunden') + ' reserviert. Kunde hat bestellt: <b>Auftragsbestätigung</b> · wenn verschickt: <b>Rechnung – Ware verschickt</b> · bei Vorkasse: <b>Proforma</b>.</div>' : '') +
+    (b.typ === 'Auftrag' && bearbeitbar ? '<div class="info" style="margin-bottom:14px">📝 Auftrag bestätigt – die Ware ist für ' + esc(b.firma || 'den Kunden') + ' reserviert. Bestätigung mit <b>✉️ Per E-Mail</b> schicken; wenn die Ware raus ist: <b>Rechnung – Ware verschickt</b>.</div>' : '') +
     '<div class="raster r21" style="grid-template-columns:minmax(0,1fr) 310px"><div>' +
     (ohneVk ? '<div class="hinweis">⚠️ ' + ohneVk + ' Position(en) ohne VK-Preis – sie stehen mit 0 € im Beleg. Preis im Artikel festlegen (auf die Zeile klicken).</div>' : '') +
     (warn.length ? '<div class="hinweis">Prüfen: ' + warn.map(function (p) { return esc(p.name.slice(0, 40)) + ' – <b>' + esc(p.pruefung) + '</b>'; }).join(' · ') + '</div>' : '') +
@@ -777,8 +779,17 @@ function zeichneBeleg(b, e) {
   };
   if ($('#reBtn')) $('#reBtn').onclick = function () {
     var btn = this;
-    frage('Rechnung erstellen – Ware verschickt?', '<p>Aus <b>' + esc(b.nr) + '</b> wird eine <b>Rechnung</b> mit allen Positionen. Die Ware wird dabei als <b>geliefert</b> vom Lagerbestand abgebucht.</p><p class="grau">Für Kunden, denen ihr vertraut (Zahlung nach Lieferung). Das Angebot wird auf „Umgewandelt“ gesetzt.</p>', 'Rechnung erstellen')
+    frage('Rechnung erstellen – Ware verschickt?', '<p>Aus <b>' + esc(b.nr) + '</b> wird eine <b>Rechnung</b> mit allen Positionen. Die Ware wird dabei als <b>geliefert</b> vom Lagerbestand abgebucht.</p><p class="grau">Für Kunden, denen ihr vertraut (Zahlung nach Lieferung). ' + (b.typ === 'Auftrag' ? 'Der Auftrag' : 'Das Angebot') + ' wird auf „Umgewandelt“ gesetzt.</p>', 'Rechnung erstellen')
       .then(function (ja) { if (ja) mitKnopf(btn, api('b_umwandeln', { nr: b.nr, ziel: 'Rechnung', status: 'Geliefert' })).then(function (x) { toast(x.nr + ' erstellt – Ware abgebucht.'); location.hash = '#beleg/' + x.nr; }).catch(fehler); });
+  };
+  if ($('#abBtn')) $('#abBtn').onclick = function () {
+    var btn = this;
+    frage('Auftragsbestätigung erstellen?', '<p>Aus <b>' + esc(b.nr) + '</b> wird eine <b>Auftragsbestätigung</b> mit allen Positionen. Die Ware bleibt für den Kunden reserviert (Status „Angenommen“).</p><p class="grau">Das Angebot wird auf „Umgewandelt“ gesetzt. Danach kannst du die Bestätigung direkt per E-Mail schicken.</p>', 'Erstellen')
+      .then(function (ja) { if (ja) mitKnopf(btn, api('b_umwandeln', { nr: b.nr, ziel: 'Auftrag' })).then(function (x) { toast(x.nr + ' erstellt.'); location.hash = '#beleg/' + x.nr; }).catch(fehler); });
+  };
+  $('#mailBtn').onclick = function () {
+    if (!b.positionenListe.length) { toast('Der Beleg hat noch keine Positionen.', true); return; }
+    belegMail(b, this);
   };
   if ($('#umBtn')) $('#umBtn').onclick = function () {
     var btn = this;
@@ -808,9 +819,60 @@ function zeichneBeleg(b, e) {
   };
 }
 
+
+// Beleg per E-Mail: PDF erzeugen, richtige Kundenadresse wählen (Auftrag → Auftrags-Mail, Rechnung → Rechnungs-Mail), Mail vorbereiten
+var MAIL_ART = { Angebot: 'unser Angebot', Proforma: 'unsere Proforma-Rechnung', Auftrag: 'unsere Auftragsbestätigung', Rechnung: 'unsere Rechnung' };
+function belegMail(b, btn) {
+  knopfLaedt(btn, true);
+  Promise.all([api('b_kunden'), api('b_pdf', { art: 'beleg', nr: b.nr }), einst()]).then(function (r) {
+    knopfLaedt(btn, false);
+    var k = r[0].filter(function (x) { return x.nr === b.kunde; })[0] || {}, pdf = r[1], e = r[2];
+    var firmaWir = ((e.felder || []).filter(function (f) { return f.name === 'Firmenname'; })[0] || {}).wert || 'AHGI GbR';
+    var feld = b.typ === 'Auftrag' ? 'emailAuftrag' : (b.typ === 'Rechnung' || b.typ === 'Proforma' ? 'emailRechnung' : '');
+    var an = (feld && k[feld]) || k.email || '';
+    var welche = feld && k[feld] ? (b.typ === 'Auftrag' ? 'Adresse für Auftragsbestätigungen' : 'Adresse für Rechnungen') : (k.email ? 'allgemeine E-Mail-Adresse' : '');
+    var titel = { Angebot: 'Angebot', Proforma: 'Proforma-Rechnung', Auftrag: 'Auftragsbestätigung', Rechnung: 'Rechnung' }[b.typ] || 'Beleg';
+    var ziel = Number(k.zahlungsziel) || 14;
+    var text = akqAnrede(k.ansprechpartner) + ',\n\n' +
+      (b.typ === 'Auftrag' ? 'vielen Dank für Ihre Bestellung. Anbei erhalten Sie unsere Auftragsbestätigung ' + b.nr + ' über ' + eur(b.summe) + ' netto.\nWir melden uns, sobald die Ware versandbereit ist.' :
+       b.typ === 'Rechnung' ? 'anbei erhalten Sie unsere Rechnung ' + b.nr + ' über ' + eur(b.summe * (1 + b.mwst)) + ' brutto.\nZahlbar innerhalb von ' + ziel + ' Tagen ohne Abzug.' :
+       b.typ === 'Proforma' ? 'anbei erhalten Sie unsere Proforma-Rechnung ' + b.nr + '. Nach Zahlungseingang geben wir die Ware frei.' :
+       'anbei erhalten Sie ' + MAIL_ART[b.typ] + ' ' + b.nr + '. Bei Fragen melden Sie sich gern.') +
+      '\n\nMit freundlichen Grüßen\n' + (NAME || '') + '\n' + firmaWir;
+    var bytes = Uint8Array.from(atob(pdf.daten), function (c) { return c.charCodeAt(0); });
+    var datei = new File([bytes], pdf.name, { type: 'application/pdf' });
+    var url = URL.createObjectURL(datei);
+    var teilenGeht = !!(navigator.canShare && navigator.canShare({ files: [datei] }));
+    var m = modal('<header><h3>✉️ ' + esc(titel) + ' ' + esc(b.nr) + ' per E-Mail</h3><button class="icon-btn" data-zu>✕</button></header><div class="inhalt">' +
+      (an ? '<div class="info" style="margin-bottom:12px;font-size:13px">An die <b>' + esc(welche) + '</b> von ' + esc(k.firma || b.firma) + '.' +
+        (feld && !k[feld] ? ' <span class="grau">(Keine eigene ' + (b.typ === 'Auftrag' ? 'Auftrags' : 'Rechnungs') + '-Adresse hinterlegt – beim Kunden ergänzen.)</span>' : '') + '</div>'
+        : '<div class="hinweis" style="margin-bottom:12px">Für diesen Kunden ist keine E-Mail-Adresse hinterlegt – bitte eintragen.</div>') +
+      '<div class="feld"><label>An</label><input id="bmAn" value="' + esc(an) + '"></div>' +
+      '<div class="feld"><label>Betreff</label><input id="bmB" value="' + esc(titel + ' ' + b.nr + ' – ' + firmaWir) + '"></div>' +
+      '<div class="feld"><label>Text</label><textarea id="bmT" style="min-height:220px">' + esc(text) + '</textarea></div>' +
+      '<div style="display:flex;align-items:center;gap:10px;font-size:13.5px"><span>📎 <b>' + esc(pdf.name) + '</b></span><a class="btn sek klein" href="' + url + '" download="' + esc(pdf.name) + '">⬇ PDF</a><a class="btn sek klein" href="' + esc(pdf.url) + '" target="_blank" rel="noopener">Drive</a></div>' +
+      '<p class="grau" style="font-size:12.5px;margin:8px 0 0">' + (teilenGeht ? '<b>Teilen</b> öffnet dein Mailprogramm mit der PDF schon im Anhang (Empfänger dort einfügen – er ist schon kopiert). ' : '') +
+        '<b>Gmail</b> lädt die PDF herunter und öffnet eine fertige Mail – dort die PDF aus „Downloads“ anhängen.</p></div>' +
+      '<footer>' + (teilenGeht ? '<button class="btn sek" id="bmTeilen">📤 Teilen (mit Anhang)</button>' : '') + '<button class="btn sek" id="bmKopie">📋 Text kopieren</button><button class="btn" id="bmGmail">In Gmail öffnen</button></footer>',
+      { breit: true, zu: function () { setTimeout(function () { URL.revokeObjectURL(url); }, 60000); } });
+    var w = function () { return { an: $('#bmAn', m.el).value.trim(), b: $('#bmB', m.el).value, t: $('#bmT', m.el).value }; };
+    var kopiere = function (t) { return navigator.clipboard ? navigator.clipboard.writeText(t).catch(function () {}) : Promise.resolve(); };
+    $('#bmGmail', m.el).onclick = function () {
+      var x = w(), a = document.createElement('a'); a.href = url; a.download = pdf.name; document.body.appendChild(a); a.click(); a.remove();
+      window.open('https://mail.google.com/mail/?view=cm&fs=1&to=' + encodeURIComponent(x.an) + '&su=' + encodeURIComponent(x.b) + '&body=' + encodeURIComponent(x.t), '_blank');
+      toast('PDF heruntergeladen – in Gmail als Anhang hinzufügen.');
+    };
+    $('#bmKopie', m.el).onclick = function () { kopiere(w().t).then(function () { toast('Text kopiert.'); }); };
+    if ($('#bmTeilen', m.el)) $('#bmTeilen', m.el).onclick = function () {
+      var x = w();
+      kopiere(x.an).then(function () { return navigator.share({ files: [datei], title: x.b, text: x.t }); }).then(function () { toast('Geteilt.'); }).catch(function (er) { if (er && er.name !== 'AbortError') fehler(er); });
+    };
+  }).catch(function (er) { knopfLaedt(btn, false); fehler(er); });
+}
+
 /* ============================ Kunden & Lieferanten ============================ */
 var KUNDE_FELDER = [['firma', 'Firma *', 'voll'], ['ansprechpartner', 'Ansprechpartner'], ['typ', 'Kundentyp (z. B. Gartencenter)'], ['strasse', 'Straße', 'voll'], ['plz', 'PLZ'], ['ort', 'Ort'], ['land', 'Land'], ['ustid', 'USt-ID'],
-  ['email', 'E-Mail'], ['telefon', 'Telefon'], ['zahlungsziel', 'Zahlungsziel (Tage)'], ['notiz', 'Notiz', 'voll']];
+  ['email', 'E-Mail (allgemein)'], ['telefon', 'Telefon'], ['emailAuftrag', 'E-Mail für Auftragsbestätigungen'], ['emailRechnung', 'E-Mail für Rechnungen'], ['zahlungsziel', 'Zahlungsziel (Tage)'], ['notiz', 'Notiz', 'voll']];
 var LIEF_FELDER = [['firma', 'Firma *', 'voll'], ['ansprechpartner', 'Ansprechpartner'], ['art', 'Art (Hersteller, Restposten …)'], ['strasse', 'Straße', 'voll'], ['plz', 'PLZ'], ['ort', 'Ort'], ['land', 'Land'], ['ustid', 'USt-ID'],
   ['email', 'E-Mail'], ['telefon', 'Telefon'], ['notiz', 'Notiz', 'voll']];
 function stammForm(art, x, danach) {
