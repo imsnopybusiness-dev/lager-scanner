@@ -162,6 +162,13 @@
   .dok-g.hier .dok-a b { color:var(--g); }
   .dok-g details { margin:0 0 0 6px; font-size:12.5px; } .dok-g summary { cursor:pointer; color:var(--m); padding:2px 0; }
   .dok-warn { font-size:12px; color:#8A5A00; background:#FFF1D6; border-radius:6px; padding:4px 8px; margin:2px 0 4px; }
+  .dash-gross .kpi b { font-size:30px; }
+  .kpi span em { font-style:normal; font-weight:600; margin-left:4px; }
+  .kpi.klein b { font-size:20px; }
+  .dash-chart { height:190px; }
+  .dash-chart .s { position:relative; gap:2px; }
+  .dash-chart .wert { font-size:10.5px; color:var(--m); white-space:nowrap; margin-bottom:2px; display:block; text-align:center; }
+  .dash-chart .anz { display:block; text-align:center; font-size:11.5px; font-weight:700; color:var(--g); min-height:14px; }
   .reiter { display:flex; gap:6px; margin-bottom:14px; flex-wrap:wrap; }
   .reiter a { padding:9px 14px; border-radius:10px; background:var(--w); box-shadow:var(--sh); color:var(--t); text-decoration:none; font-weight:600; display:flex; align-items:center; gap:8px; }
   .reiter a span { background:var(--g3); color:var(--m); border-radius:99px; padding:1px 8px; font-size:12px; }
@@ -247,7 +254,7 @@
 <div id="modalRoot"></div>
 
 <script>
-var APP_VERSION = '2026-11-15e';
+var APP_VERSION = '2026-11-15f';
 /* Selbst-Aktualisierung: holt die Seite ohne Cache und lädt neu, wenn es eine neuere Version gibt */
 (function () {
   function pruefen() {
@@ -473,6 +480,54 @@ function zeigeZugang() {
 }
 
 /* ============================ Übersicht ============================ */
+/* Dashboard-Auswertung: Umsatz = Rechnungen (netto, nicht storniert); Auftrag = Vorgang mit Auftragsbestätigung/Proforma/Rechnung oder angenommenem Angebot */
+var DASH_ZEIT = [['monat', 'Dieser Monat'], ['vormonat', 'Letzter Monat'], ['jahr', 'Dieses Jahr'], ['12m', 'Letzte 12 Monate'], ['alles', 'Gesamt']];
+var dashZeit = (function () { try { return localStorage.getItem('wwDashZeit') || 'jahr'; } catch (e) { return 'jahr'; } })();
+function kurzEur(x) { return x >= 10000 ? Math.round(x / 1000) + ' T€' : x >= 1000 ? (Math.round(x / 100) / 10).toString().replace('.', ',') + ' T€' : Math.round(x) + ' €'; }
+function dashAuswerten(alle, zeit) {
+  var iso = function (d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+  var h = new Date(), J = h.getFullYear(), M = h.getMonth();
+  var bereich = {
+    monat: [iso(new Date(J, M, 1)), iso(h), [iso(new Date(J, M - 1, 1)), iso(new Date(J, M - 1, Math.min(h.getDate(), new Date(J, M, 0).getDate())))], 'gleicher Zeitraum Vormonat'],
+    vormonat: [iso(new Date(J, M - 1, 1)), iso(new Date(J, M, 0)), [iso(new Date(J, M - 2, 1)), iso(new Date(J, M - 1, 0))], 'Monat davor'],
+    jahr: [J + '-01-01', iso(h), [(J - 1) + '-01-01', iso(new Date(J - 1, M, h.getDate()))], 'gleicher Zeitraum Vorjahr'],
+    '12m': [iso(new Date(J, M - 11, 1)), iso(h), [iso(new Date(J, M - 23, 1)), iso(new Date(J, M - 11, 0))], '12 Monate davor'],
+    alles: ['0000-00-00', '9999-12-31', null, '']
+  }[zeit] || null;
+  var vg = {};
+  alle.forEach(function (b) { (vg[b.vorgang || b.nr] = vg[b.vorgang || b.nr] || []).push(b); });
+  var reihe = { Angebot: 0, Proforma: 1, Auftrag: 2, Rechnung: 3 };
+  var auftraege = [];
+  Object.keys(vg).forEach(function (k) {
+    var l = vg[k].filter(function (b) { return b.status !== 'Storniert'; });
+    var best = l.filter(function (b) { return b.typ !== 'Angebot' || b.status === 'Angenommen'; });
+    if (!best.length) return;
+    best.sort(function (x, y) { return reihe[x.typ] - reihe[y.typ] || (x.datum < y.datum ? -1 : 1); });
+    var letzter = best[best.length - 1], re = l.filter(function (b) { return b.typ === 'Rechnung'; });
+    auftraege.push({ vorgang: k, nr: letzter.nr, firma: letzter.firma, kunde: letzter.kunde, datum: best.map(function (b) { return b.datum; }).sort()[0], wert: letzter.summe,
+      berechnet: re.length > 0, stand: { Angebot: 'Angebot angenommen', Proforma: 'Proforma', Auftrag: 'Auftrag bestätigt', Rechnung: 'berechnet' }[letzter.typ] + (letzter.status === 'Geliefert' ? ' · geliefert' : '') });
+  });
+  var rechnungen = alle.filter(function (b) { return b.typ === 'Rechnung' && b.status !== 'Storniert'; });
+  var summe = function (von, bis) {
+    var r = rechnungen.filter(function (b) { return b.datum >= von && b.datum <= bis; }), a = auftraege.filter(function (o) { return o.datum >= von && o.datum <= bis; });
+    return { umsatz: r.reduce(function (s, b) { return s + b.summe; }, 0), ek: r.reduce(function (s, b) { return s + (b.ek || 0); }, 0), rechnungen: r.length, auftraege: a.length, auftragswert: a.reduce(function (s, o) { return s + o.wert; }, 0), r: r, a: a };
+  };
+  var jetzt = summe(bereich[0], bereich[1]);
+  var kunden = {};
+  jetzt.a.forEach(function (o) { var c = kunden[o.kunde || o.firma] = kunden[o.kunde || o.firma] || { firma: o.firma || '–', auftraege: 0, wert: 0, umsatz: 0 }; c.auftraege++; c.wert += o.wert; });
+  jetzt.r.forEach(function (b) { var c = kunden[b.kunde || b.firma] = kunden[b.kunde || b.firma] || { firma: b.firma || '–', auftraege: 0, wert: 0, umsatz: 0 }; c.umsatz += b.summe; });
+  var monate = [];
+  for (var i = 11; i >= 0; i--) {
+    var a0 = new Date(J, M - i, 1), m = iso(a0).slice(0, 7);
+    var x = summe(m + '-01', m + '-31'); monate.push({ monat: m, umsatz: x.umsatz, auftraege: x.auftraege });
+  }
+  return { umsatz: jetzt.umsatz, ek: jetzt.ek, rechnungen: jetzt.rechnungen, auftraege: jetzt.auftraege, auftragswert: jetzt.auftragswert,
+    vorher: bereich[2] ? summe(bereich[2][0], bereich[2][1]) : null, vorherText: bereich[3],
+    kunden: Object.keys(kunden).map(function (k) { return kunden[k]; }).sort(function (x, y) { return y.wert + y.umsatz - x.wert - x.umsatz; }),
+    offen: auftraege.filter(function (o) { return !o.berechnet; }).sort(function (x, y) { return x.datum < y.datum ? 1 : -1; }),
+    letzte: auftraege.slice().sort(function (x, y) { return x.datum < y.datum ? 1 : -1; }).slice(0, 8), monate: monate };
+}
+
 SEITEN.uebersicht = function () {
   api('b_dashboard').then(function (d) {
     var k = d.kennzahlen, b = d.belege, max = Math.max.apply(null, d.umsatz.map(function (u) { return u.summe; }).concat([1]));
@@ -482,30 +537,53 @@ SEITEN.uebersicht = function () {
     if (k.ohneBild) todos.push(['🖼', '<b>' + k.ohneBild + ' Artikel</b> ohne Bild – mit Bild wirken Angebot und Sortimentsliste deutlich stärker.', '<a class="btn sek klein" href="#artikel/ohnebild">Bilder ergänzen</a>']);
     if (b.abgelaufen.length) todos.push(['⏰', '<b>' + b.abgelaufen.length + ' abgelaufene Angebote</b> reservieren noch Ware.', '<button class="btn sek klein" id="abgBtn">Freigeben</button>']);
     if (b.entwuerfe) todos.push(['✏️', '<b>' + b.entwuerfe + (b.entwuerfe === 1 ? ' Entwurf' : ' Entwürfe') + '</b> noch nicht verschickt.', '<a class="btn sek klein" href="#belege/Entwurf">Ansehen</a>']);
+    var A = dashAuswerten(d.alle || [], dashZeit);
+    var vgl = function (x, y, geld) {
+      if (A.vorher == null || y == null) return '';
+      if (!y) return x ? '<em class="zahl-gut">neu</em>' : '';
+      var p = (x - y) / Math.abs(y);
+      return '<em class="' + (p >= 0 ? 'zahl-gut' : 'zahl-leer') + '">' + (p >= 0 ? '▲ ' : '▼ ') + Math.abs(Math.round(p * 100)) + ' %</em>';
+    };
+    var V = A.vorher || {};
+    var maxU = Math.max.apply(null, A.monate.map(function (u) { return u.umsatz; }).concat([1]));
     $('#main').innerHTML = kopf('Übersicht', 'Stand ' + new Date().toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' }),
       '<button class="btn sek" onclick="neuerBeleg(\'Angebot\')">＋ Neues Angebot</button><button class="btn sek" onclick="artikelForm()">＋ Artikel</button><a class="btn" href="#wareneingang/neu">＋ Wareneingang buchen</a>') +
+      '<div class="chips" style="margin-bottom:12px">' + DASH_ZEIT.map(function (z) { return '<button class="chip' + (dashZeit === z[0] ? ' an' : '') + '" data-zeit="' + z[0] + '">' + z[1] + '</button>'; }).join('') +
+        (A.vorherText ? '<span class="grau" style="font-size:12.5px;align-self:center;margin-left:6px">Vergleich: ' + A.vorherText + '</span>' : '') + '</div>' +
+      '<div class="raster r4 dash-gross" style="margin-bottom:12px">' +
+      '<div class="kpi"><small>Umsatz netto</small><b>' + eur0(A.umsatz) + '</b><span>' + A.rechnungen + ' Rechnung' + (A.rechnungen === 1 ? '' : 'en') + ' ' + vgl(A.umsatz, V.umsatz) + '</span></div>' +
+      '<div class="kpi"><small>Aufträge</small><b>' + A.auftraege + '</b><span>' + eur0(A.auftragswert) + ' Auftragswert ' + vgl(A.auftraege, V.auftraege) + '</span></div>' +
+      '<div class="kpi"><small>Ø Auftragswert</small><b>' + (A.auftraege ? eur0(A.auftragswert / A.auftraege) : '–') + '</b><span>netto je Auftrag</span></div>' +
+      '<div class="kpi"><small>Rohertrag</small><b>' + eur0(A.umsatz - A.ek) + '</b><span>' + (A.umsatz ? 'Marge ' + proz((A.umsatz - A.ek) / A.umsatz) : 'aus Rechnungen') + ' ' + vgl(A.umsatz - A.ek, V.umsatz == null ? null : V.umsatz - V.ek) + '</span></div>' +
+      '</div>' +
       '<div class="raster r4" style="margin-bottom:18px">' +
-      '<div class="kpi"><small>Lagerwert EK</small><b>' + eur0(k.ek) + '</b><span>' + zahl(k.stueck) + ' Stück · ' + k.artikel + ' Artikel</span></div>' +
-      '<div class="kpi"><small>Lagerwert VK</small><b>' + eur0(k.vk) + '</b><span>' + (k.ohneVk ? k.ohneVk + ' Artikel noch ohne VK' : 'Marge ' + (k.vk ? proz((k.vk - k.ek) / k.vk) : '–')) + '</span></div>' +
-      '<div class="kpi"><small>Wert zur UVP (brutto)</small><b>' + eur0(k.uvp) + '</b><span>Hersteller-UVP × Bestand</span></div>' +
-      '<div class="kpi klick" onclick="location.hash=\'#belege/Offen\'"><small>Offene Angebote</small><b>' + b.angeboteOffen + '</b><span>' + eur(b.angeboteOffenSumme) + ' netto</span></div>' +
+      '<div class="kpi klein"><small>Offene Aufträge (noch nicht berechnet)</small><b>' + A.offen.length + '</b><span>' + eur(A.offen.reduce(function (s, o) { return s + o.wert; }, 0)) + ' netto</span></div>' +
+      '<div class="kpi klein klick" onclick="location.hash=\'#belege/Offen\'"><small>Offene Angebote</small><b>' + b.angeboteOffen + '</b><span>' + eur(b.angeboteOffenSumme) + ' netto</span></div>' +
+      '<div class="kpi klein"><small>Lagerwert EK</small><b>' + eur0(k.ek) + '</b><span>' + zahl(k.stueck) + ' Stück · ' + k.artikel + ' Artikel</span></div>' +
+      '<div class="kpi klein"><small>Lagerwert VK</small><b>' + eur0(k.vk) + '</b><span>' + (k.ohneVk ? k.ohneVk + ' Artikel ohne VK' : 'Marge ' + (k.vk ? proz((k.vk - k.ek) / k.vk) : '–')) + '</span></div>' +
       '</div>' +
       '<div class="raster r21"><div>' +
       (todos.length ? '<div class="karte"><h2>Zu erledigen</h2>' + todos.map(function (t) { return '<div class="todo"><span>' + t[0] + ' ' + t[1] + '</span>' + t[2] + '</div>'; }).join('') + '</div>' : '') +
-      '<div class="karte"><h2>Umsatz der letzten 12 Monate <span class="grau" style="font-weight:400;font-size:12px">Proformas/Rechnungen angenommen & geliefert</span></h2><div class="chart">' +
-      d.umsatz.map(function (u) { return '<div class="s" title="' + monat(u.monat) + ' ' + u.monat.slice(0, 4) + ': ' + eur(u.summe) + '"><div class="bar" style="height:' + Math.round(u.summe / max * 130) + 'px"></div><small>' + monat(u.monat) + '</small></div>'; }).join('') +
-      '</div><div class="grau" style="font-size:12.5px;margin-top:6px">Offene Aufträge: ' + b.auftraege + ' · ' + eur(b.auftraegeSumme) + '</div></div>' +
+      '<div class="karte"><h2>Umsatz & Aufträge – letzte 12 Monate <span class="grau" style="font-weight:400;font-size:12px">Balken = Umsatz (Rechnungen netto) · Zahl = Aufträge</span></h2><div class="chart dash-chart">' +
+      A.monate.map(function (u) {
+        return '<div class="s" title="' + monat(u.monat) + ' ' + u.monat.slice(0, 4) + ': ' + eur(u.umsatz) + ' Umsatz · ' + u.auftraege + ' Aufträge"><span class="wert">' + (u.umsatz ? kurzEur(u.umsatz) : '') + '</span><div class="bar" style="height:' + Math.round(u.umsatz / maxU * 120) + 'px"></div><small>' + monat(u.monat) + '</small><span class="anz">' + (u.auftraege || '') + '</span></div>';
+      }).join('') + '</div></div>' +
+      (A.kunden.length ? '<div class="karte"><h2>Kunden im Zeitraum</h2><div class="tab-wrap"><table><thead><tr><th>Kunde</th><th class="z">Aufträge</th><th class="z">Auftragswert</th><th class="z">Umsatz</th></tr></thead><tbody>' +
+        A.kunden.slice(0, 8).map(function (c) { return '<tr><td>' + esc(c.firma) + '</td><td class="z">' + c.auftraege + '</td><td class="z">' + eur(c.wert) + '</td><td class="z">' + eur(c.umsatz) + '</td></tr>'; }).join('') + '</tbody></table></div></div>' : '') +
       '<div class="karte"><h2>Lager nach Kategorie</h2><div class="tab-wrap"><table><thead><tr><th>Kategorie</th><th class="z">Artikel</th><th class="z">Stück</th><th class="z">EK-Wert</th><th class="z">VK-Wert</th><th class="z">UVP-Wert</th></tr></thead><tbody>' +
       d.kategorien.map(function (c) { return '<tr class="klick" onclick="location.hash=\'#artikel/kat:' + encodeURIComponent(c.kategorie) + '\'"><td>' + esc(c.kategorie) + '</td><td class="z">' + c.artikel + '</td><td class="z">' + zahl(c.stueck) + '</td><td class="z">' + eur(c.ek) + '</td><td class="z">' + eur(c.vk) + '</td><td class="z">' + eur(c.uvp) + '</td></tr>'; }).join('') +
       '</tbody></table></div></div>' +
       '</div><div>' +
-      '<div class="karte"><h2>Letzte Belege <a class="grau" style="font-size:12.5px;font-weight:400" href="#belege">alle</a></h2><div class="liste-mini">' +
-      (d.letzteBelege.length ? d.letzteBelege.map(function (x) { return '<div style="cursor:pointer" onclick="location.hash=\'#beleg/' + esc(x.nr) + '\'"><span><b>' + esc(x.nr) + '</b> ' + esc(x.firma || 'ohne Kunde') + '</span><span>' + statusBadge(x.status) + '</span></div>'; }).join('') : '<div class="grau">Noch keine Belege</div>') + '</div></div>' +
+      '<div class="karte"><h2>Offene Aufträge <span class="grau" style="font-weight:400;font-size:12px">noch keine Rechnung</span></h2><div class="liste-mini">' +
+      (A.offen.length ? A.offen.map(function (o) { return '<div style="cursor:pointer" onclick="location.hash=\'#beleg/' + esc(o.nr) + '\'"><span><b>' + esc(o.firma || '–') + '</b><br><small class="grau">' + esc(o.nr) + ' · ' + datum(o.datum) + '</small></span><b>' + eur(o.wert) + '</b></div>'; }).join('') : '<div class="grau">Alles berechnet 👍</div>') + '</div></div>' +
+      '<div class="karte"><h2>Letzte Aufträge <a class="grau" style="font-size:12.5px;font-weight:400" href="#belege">alle</a></h2><div class="liste-mini">' +
+      (A.letzte.length ? A.letzte.map(function (o) { return '<div style="cursor:pointer" onclick="location.hash=\'#beleg/' + esc(o.nr) + '\'"><span><b>' + esc(o.firma || '–') + '</b><br><small class="grau">' + datum(o.datum) + ' · ' + esc(o.stand) + '</small></span><b>' + eur(o.wert) + '</b></div>'; }).join('') : '<div class="grau">Noch keine Aufträge</div>') + '</div></div>' +
       '<div class="karte"><h2>Fast ausverkauft <span class="grau" style="font-weight:400;font-size:12px">≤ ' + d.schwelle + ' Stk</span></h2><div class="liste-mini">' +
       (d.knapp.length ? d.knapp.map(function (a) { return '<div><span>' + esc(a.name) + '</span><span class="zahl-knapp">' + zahl(a.verfuegbar) + '</span></div>'; }).join('') : '<div class="grau">Nichts knapp</div>') + '</div></div>' +
       '<div class="karte"><h2>Wareneingänge <a class="grau" style="font-size:12.5px;font-weight:400" href="#wareneingang">alle</a></h2><div class="liste-mini">' +
       (d.bestellungen.length ? d.bestellungen.map(function (w) { return '<div><span>' + datum(w.datum) + ' · ' + esc(w.lieferant || '–') + '<br><small class="grau">' + esc(w.notiz) + ' · ' + w.positionen + ' Pos. · ' + zahl(w.stueck) + ' Stk</small></span><b>' + eur(w.summe) + '</b></div>'; }).join('') : '<div class="grau">Noch keine</div>') + '</div></div>' +
       '</div></div>';
+    $$('[data-zeit]').forEach(function (c) { c.onclick = function () { dashZeit = c.dataset.zeit; try { localStorage.setItem('wwDashZeit', dashZeit); } catch (e) {} route(); }; });
     var ab = $('#abgBtn');
     if (ab) ab.onclick = function () {
       frage('Abgelaufene Angebote freigeben?', '<p>' + b.abgelaufen.map(function (x) { return esc(x.nr + ' – ' + (x.firma || '') + ' (gültig bis ' + datum(x.gueltig) + ')'); }).join('<br>') + '</p><p class="grau">Sie werden auf „Abgelehnt“ gesetzt, die reservierte Ware wird wieder frei.</p>', 'Freigeben')
