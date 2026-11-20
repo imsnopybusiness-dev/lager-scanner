@@ -254,7 +254,7 @@
 <div id="modalRoot"></div>
 
 <script>
-var APP_VERSION = '2026-11-20a';
+var APP_VERSION = '2026-11-20b';
 /* Selbst-Aktualisierung: holt die Seite ohne Cache und lädt neu, wenn es eine neuere Version gibt */
 (function () {
   function pruefen() {
@@ -1294,7 +1294,7 @@ SEITEN.sortiment = function () {
   Promise.all([einst(), artikelListe(true)]).then(function (r) {
     var e = r[0];
     // Kundenpreise: Auf-/Abschlag in % auf alle VK-Preise + einzeln überschriebene Preise (je Kunde gespeichert)
-    var S = { kunde: '', pct: 0, eigene: {}, geaendert: false };
+    var S = { kunde: '', pct: 0, eigene: {}, geaendert: false, aus: {} }; // aus = abgewählte Artikel (kommen nicht ins PDF)
     var runde = function (x) { return x >= 1 ? Math.round(x * 100) / 100 : Math.round(x * 1000) / 1000; };
     var berechnet = function (a) { return a.vk === '' || a.vk == null || isNaN(Number(a.vk)) ? '' : runde(Number(a.vk) * (1 + S.pct / 100)); };
     var preisVon = function (a) { return S.eigene[a.ean] !== undefined ? S.eigene[a.ean] : berechnet(a); };
@@ -1310,7 +1310,7 @@ SEITEN.sortiment = function () {
       '<button class="btn sek klein" id="soSp">💾 Kundenpreise speichern</button><button class="btn sek klein" id="soReset">↺ Zurücksetzen</button>' +
       '<span class="grau" id="soInfo" style="font-size:12px"></span></div>' +
       '<div class="grau" id="soAnz" style="margin:8px 0"></div>' +
-      '<div class="tab-wrap"><table><thead><tr><th></th><th>EAN</th><th>Bezeichnung</th><th>Kategorie</th><th class="z">VE</th><th class="z">Verfügbar</th><th class="z">UVP</th><th class="z">VK Standard</th><th class="z">Preis netto</th></tr></thead><tbody id="soB"></tbody></table></div></div>';
+      '<div class="tab-wrap"><table><thead><tr><th style="width:30px"><input type="checkbox" id="soAlle" title="Alle an-/abwählen" checked></th><th></th><th>EAN</th><th>Bezeichnung</th><th>Kategorie</th><th class="z">VE</th><th class="z">Verfügbar</th><th class="z">UVP</th><th class="z">VK Standard</th><th class="z">Preis netto</th></tr></thead><tbody id="soB"></tbody></table></div></div>';
     var info = function () {
       var n = Object.keys(S.eigene).length;
       $('#soInfo').textContent = (S.pct ? 'alle Preise ' + (S.pct > 0 ? '+' : '') + komma(S.pct) + ' %' : '') + (n ? (S.pct ? ' · ' : '') + n + ' Preis' + (n === 1 ? '' : 'e') + ' einzeln angepasst' : '') +
@@ -1321,13 +1321,15 @@ SEITEN.sortiment = function () {
       return C.artikel.filter(function (a) { return a.aktiv !== 'Nein' && (k === 'Alle' || a.kategorie === k) && (!v || Number(a.verfuegbar) > 0); });
     };
     var zeichne = function () {
-      var p = $('#soP').checked, l = liste();
-      $('#soAnz').textContent = l.length + ' Artikel kommen auf die Liste' + (p && l.some(function (a) { return preisVon(a) === ''; }) ? ' · Achtung: ' + l.filter(function (a) { return preisVon(a) === ''; }).length + ' ohne Preis' : '');
+      var p = $('#soP').checked, l = liste(), gew = l.filter(function (a) { return !S.aus[a.ean]; });
+      $('#soAnz').textContent = (gew.length === l.length ? l.length + ' Artikel kommen auf die Liste' : gew.length + ' von ' + l.length + ' Artikeln ausgewählt') + (p && gew.some(function (a) { return preisVon(a) === ''; }) ? ' · Achtung: ' + gew.filter(function (a) { return preisVon(a) === ''; }).length + ' ohne Preis' : '');
+      $('#soAlle').checked = gew.length > 0; $('#soAlle').indeterminate = gew.length > 0 && gew.length < l.length;
       $('#soB').innerHTML = l.map(function (a) {
-        var eig = S.eigene[a.ean] !== undefined;
-        return '<tr><td>' + bildTag(a.bild) + '</td><td class="mono">' + esc(a.ean) + '</td><td>' + esc(a.name) + '</td><td>' + esc(a.kategorie) + '</td><td class="z">' + zahl(a.ve) + '</td><td class="z">' + zahl(a.verfuegbar) + '</td><td class="z">' + eur(a.uvp) + '</td>' +
+        var eig = S.eigene[a.ean] !== undefined, an = !S.aus[a.ean];
+        return '<tr' + (an ? '' : ' style="opacity:.4"') + '><td><input type="checkbox" data-wahl="' + esc(a.ean) + '"' + (an ? ' checked' : '') + '></td><td>' + bildTag(a.bild) + '</td><td class="mono">' + esc(a.ean) + '</td><td>' + esc(a.name) + '</td><td>' + esc(a.kategorie) + '</td><td class="z">' + zahl(a.ve) + '</td><td class="z">' + zahl(a.verfuegbar) + '</td><td class="z">' + eur(a.uvp) + '</td>' +
           '<td class="z grau">' + eurP(a.vk) + '</td><td class="z">' + (p ? '<input class="inl" data-ean="' + esc(a.ean) + '" style="width:84px;text-align:right' + (eig ? ';background:#FFF4D6;font-weight:600' : '') + '" inputmode="decimal" value="' + esc(preisFeld(preisVon(a))) + '"' + (eig ? ' title="Einzeln angepasst – leeren für den berechneten Preis"' : '') + '>' : '–') + '</td></tr>';
-      }).join('') || '<tr><td colspan="9" class="leerstand">Keine Artikel für diese Auswahl.</td></tr>';
+      }).join('') || '<tr><td colspan="10" class="leerstand">Keine Artikel für diese Auswahl.</td></tr>';
+      $('#soB').querySelectorAll('input[data-wahl]').forEach(function (cb) { cb.onchange = function () { if (cb.checked) delete S.aus[cb.dataset.wahl]; else S.aus[cb.dataset.wahl] = 1; zeichne(); }; });
       $('#soB').querySelectorAll('input[data-ean]').forEach(function (inp) {
         inp.onchange = function () {
           var ean = inp.dataset.ean, a = C.artikel.filter(function (x) { return x.ean === ean; })[0], n = leseZahl(inp.value);
@@ -1350,6 +1352,7 @@ SEITEN.sortiment = function () {
     };
     var speichern = function () { return api('kp_speichern', { kunde: S.kunde, pct: S.pct, preise: S.eigene }).then(function () { S.geaendert = false; info(); }); };
     $('#soK').onchange = $('#soV').onchange = $('#soP').onchange = zeichne;
+    $('#soAlle').onchange = function () { var an = $('#soAlle').checked; liste().forEach(function (a) { if (an) delete S.aus[a.ean]; else S.aus[a.ean] = 1; }); zeichne(); };
     $('#soPct').onchange = function () {
       var n = leseZahl($('#soPct').value); if (n === null) { toast('Bitte eine Zahl eingeben, z. B. -10 oder 15.', true); return; }
       S.pct = n || 0; S.geaendert = true; zeichne(); info();
@@ -1368,6 +1371,9 @@ SEITEN.sortiment = function () {
     zeichne(); info();
     $('#soPdf').onclick = function () {
       var p = { art: 'sortiment', kategorie: $('#soK').value, nurVerfuegbar: $('#soV').checked, preise: $('#soP').checked };
+      var l = liste(), gew = l.filter(function (a) { return !S.aus[a.ean]; });
+      if (!gew.length) { toast('Bitte mindestens einen Artikel anhaken.', true); return; }
+      if (gew.length < l.length) p.nurEans = gew.map(function (a) { return a.ean; });
       if (S.kunde || S.pct || Object.keys(S.eigene).length) {
         p.preisMap = {}; C.artikel.forEach(function (a) { var x = preisVon(a); if (x !== '') p.preisMap[a.ean] = x; });
         if (S.kunde) p.kundeName = firmaVon(S.kunde);
