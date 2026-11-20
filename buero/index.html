@@ -254,7 +254,7 @@
 <div id="modalRoot"></div>
 
 <script>
-var APP_VERSION = '2026-11-15f';
+var APP_VERSION = '2026-11-20a';
 /* Selbst-Aktualisierung: holt die Seite ohne Cache und lädt neu, wenn es eine neuere Version gibt */
 (function () {
   function pruefen() {
@@ -1293,19 +1293,88 @@ SEITEN.kalkulation = function () {
 SEITEN.sortiment = function () {
   Promise.all([einst(), artikelListe(true)]).then(function (r) {
     var e = r[0];
+    // Kundenpreise: Auf-/Abschlag in % auf alle VK-Preise + einzeln überschriebene Preise (je Kunde gespeichert)
+    var S = { kunde: '', pct: 0, eigene: {}, geaendert: false };
+    var runde = function (x) { return x >= 1 ? Math.round(x * 100) / 100 : Math.round(x * 1000) / 1000; };
+    var berechnet = function (a) { return a.vk === '' || a.vk == null || isNaN(Number(a.vk)) ? '' : runde(Number(a.vk) * (1 + S.pct / 100)); };
+    var preisVon = function (a) { return S.eigene[a.ean] !== undefined ? S.eigene[a.ean] : berechnet(a); };
+    var leseZahl = function (s) { s = String(s || '').replace(/[€\s]/g, ''); if (s === '') return ''; if (s.indexOf(',') >= 0) s = s.replace(/\./g, '').replace(',', '.'); var n = Number(s); return isNaN(n) ? null : n; };
+    var firmaVon = function (nr) { var k = e.kunden.filter(function (x) { return x.nr === nr; })[0]; return k ? k.firma : ''; };
     $('#main').innerHTML = kopf('Sortimentsliste', 'Liste zum Verschicken an Kunden – mit Bildern, EAN und Preisen', '') +
       '<div class="karte"><div class="filter"><label class="chk" style="font-weight:600">Kategorie</label><select id="soK">' + opt(['Alle'].concat(e.kategorien), 'Alle') + '</select>' +
       '<label class="chk"><input type="checkbox" id="soV" checked> nur verfügbare Artikel</label><label class="chk"><input type="checkbox" id="soP" checked> Preise zeigen</label>' +
-      '<button class="btn" id="soPdf" style="margin-left:auto">📄 PDF-Vorschau</button></div><div class="grau" id="soAnz" style="margin-bottom:8px"></div>' +
-      '<div class="tab-wrap"><table><thead><tr><th></th><th>EAN</th><th>Bezeichnung</th><th>Kategorie</th><th class="z">VE</th><th class="z">Verfügbar</th><th class="z">UVP</th><th class="z">Preis netto</th></tr></thead><tbody id="soB"></tbody></table></div></div>';
-    var zeichne = function () {
-      var k = $('#soK').value, v = $('#soV').checked, p = $('#soP').checked;
-      var l = C.artikel.filter(function (a) { return a.aktiv !== 'Nein' && (k === 'Alle' || a.kategorie === k) && (!v || Number(a.verfuegbar) > 0); });
-      $('#soAnz').textContent = l.length + ' Artikel kommen auf die Liste' + (p && l.some(function (a) { return !a.vk; }) ? ' · Achtung: ' + l.filter(function (a) { return !a.vk; }).length + ' ohne VK-Preis' : '');
-      $('#soB').innerHTML = l.map(function (a) { return '<tr><td>' + bildTag(a.bild) + '</td><td class="mono">' + esc(a.ean) + '</td><td>' + esc(a.name) + '</td><td>' + esc(a.kategorie) + '</td><td class="z">' + zahl(a.ve) + '</td><td class="z">' + zahl(a.verfuegbar) + '</td><td class="z">' + eur(a.uvp) + '</td><td class="z">' + (p ? eurP(a.vk) : '–') + '</td></tr>'; }).join('') || '<tr><td colspan="8" class="leerstand">Keine Artikel für diese Auswahl.</td></tr>';
+      '<button class="btn" id="soPdf" style="margin-left:auto">📄 PDF-Vorschau</button></div>' +
+      '<div class="filter" style="background:#F4F7F5;border-radius:8px;padding:8px 10px"><label class="chk" style="font-weight:600">Preise für Kunde</label>' +
+      '<select id="soKu">' + opt(e.kunden.map(function (k) { return { v: k.nr, t: k.firma + ' (' + k.nr + ')' }; }), '', '– Standardpreise –') + '</select>' +
+      '<label class="chk" style="font-weight:600">Auf-/Abschlag</label><input id="soPct" class="inl" style="width:64px" inputmode="decimal" placeholder="0"> <span class="grau">%</span>' +
+      '<button class="btn sek klein" id="soSp">💾 Kundenpreise speichern</button><button class="btn sek klein" id="soReset">↺ Zurücksetzen</button>' +
+      '<span class="grau" id="soInfo" style="font-size:12px"></span></div>' +
+      '<div class="grau" id="soAnz" style="margin:8px 0"></div>' +
+      '<div class="tab-wrap"><table><thead><tr><th></th><th>EAN</th><th>Bezeichnung</th><th>Kategorie</th><th class="z">VE</th><th class="z">Verfügbar</th><th class="z">UVP</th><th class="z">VK Standard</th><th class="z">Preis netto</th></tr></thead><tbody id="soB"></tbody></table></div></div>';
+    var info = function () {
+      var n = Object.keys(S.eigene).length;
+      $('#soInfo').textContent = (S.pct ? 'alle Preise ' + (S.pct > 0 ? '+' : '') + komma(S.pct) + ' %' : '') + (n ? (S.pct ? ' · ' : '') + n + ' Preis' + (n === 1 ? '' : 'e') + ' einzeln angepasst' : '') +
+        (S.geaendert && S.kunde ? ' · nicht gespeichert' : '') + (!S.kunde && (S.pct || n) ? ' · Kunde wählen, um die Preise zu speichern' : '');
     };
-    $('#soK').onchange = $('#soV').onchange = $('#soP').onchange = zeichne; zeichne();
-    $('#soPdf').onclick = function () { mitKnopf(this, api('b_pdf', { art: 'sortiment', kategorie: $('#soK').value, nurVerfuegbar: $('#soV').checked, preise: $('#soP').checked })).then(pdfZeigen).catch(fehler); };
+    var liste = function () {
+      var k = $('#soK').value, v = $('#soV').checked;
+      return C.artikel.filter(function (a) { return a.aktiv !== 'Nein' && (k === 'Alle' || a.kategorie === k) && (!v || Number(a.verfuegbar) > 0); });
+    };
+    var zeichne = function () {
+      var p = $('#soP').checked, l = liste();
+      $('#soAnz').textContent = l.length + ' Artikel kommen auf die Liste' + (p && l.some(function (a) { return preisVon(a) === ''; }) ? ' · Achtung: ' + l.filter(function (a) { return preisVon(a) === ''; }).length + ' ohne Preis' : '');
+      $('#soB').innerHTML = l.map(function (a) {
+        var eig = S.eigene[a.ean] !== undefined;
+        return '<tr><td>' + bildTag(a.bild) + '</td><td class="mono">' + esc(a.ean) + '</td><td>' + esc(a.name) + '</td><td>' + esc(a.kategorie) + '</td><td class="z">' + zahl(a.ve) + '</td><td class="z">' + zahl(a.verfuegbar) + '</td><td class="z">' + eur(a.uvp) + '</td>' +
+          '<td class="z grau">' + eurP(a.vk) + '</td><td class="z">' + (p ? '<input class="inl" data-ean="' + esc(a.ean) + '" style="width:84px;text-align:right' + (eig ? ';background:#FFF4D6;font-weight:600' : '') + '" inputmode="decimal" value="' + esc(preisFeld(preisVon(a))) + '"' + (eig ? ' title="Einzeln angepasst – leeren für den berechneten Preis"' : '') + '>' : '–') + '</td></tr>';
+      }).join('') || '<tr><td colspan="9" class="leerstand">Keine Artikel für diese Auswahl.</td></tr>';
+      $('#soB').querySelectorAll('input[data-ean]').forEach(function (inp) {
+        inp.onchange = function () {
+          var ean = inp.dataset.ean, a = C.artikel.filter(function (x) { return x.ean === ean; })[0], n = leseZahl(inp.value);
+          if (n === null) { toast('Bitte einen Preis wie 1,25 eingeben.', true); inp.value = preisFeld(preisVon(a)); return; }
+          if (n === '' || n === berechnet(a)) delete S.eigene[ean]; else S.eigene[ean] = n;
+          S.geaendert = true; zeichne(); info();
+        };
+      });
+    };
+    var setzeKunde = function (nr) {
+      var mitnehmen = !S.kunde && (S.pct || Object.keys(S.eigene).length); // Anpassungen ohne Kunden gehen auf den ersten gewählten Kunden über
+      S.kunde = nr; S.geaendert = false;
+      if (!nr) { S.pct = 0; S.eigene = {}; $('#soPct').value = ''; zeichne(); info(); return; }
+      api('kp_laden', { kunde: nr }).then(function (d) {
+        var hat = Number(d.pct) || Object.keys(d.preise || {}).length;
+        if (hat || !mitnehmen) { S.pct = Number(d.pct) || 0; S.eigene = d.preise || {}; } else S.geaendert = true;
+        $('#soPct').value = S.pct ? komma(S.pct) : '';
+        zeichne(); info(); if (S.pct || Object.keys(S.eigene).length) toast('Gespeicherte Preise für ' + firmaVon(nr) + ' geladen.');
+      }).catch(fehler);
+    };
+    var speichern = function () { return api('kp_speichern', { kunde: S.kunde, pct: S.pct, preise: S.eigene }).then(function () { S.geaendert = false; info(); }); };
+    $('#soK').onchange = $('#soV').onchange = $('#soP').onchange = zeichne;
+    $('#soPct').onchange = function () {
+      var n = leseZahl($('#soPct').value); if (n === null) { toast('Bitte eine Zahl eingeben, z. B. -10 oder 15.', true); return; }
+      S.pct = n || 0; S.geaendert = true; zeichne(); info();
+    };
+    $('#soKu').onchange = function () {
+      var nr = $('#soKu').value;
+      if (S.geaendert && S.kunde) frage('Änderungen speichern?', '<p>Die angepassten Preise für ' + esc(firmaVon(S.kunde)) + ' sind noch nicht gespeichert.</p>', 'Speichern').then(function (ja) {
+        (ja ? speichern() : Promise.resolve()).then(function () { setzeKunde(nr); }).catch(fehler);
+      }); else setzeKunde(nr);
+    };
+    $('#soSp').onclick = function () {
+      if (!S.kunde) { toast('Bitte zuerst oben einen Kunden wählen.', true); return; }
+      mitKnopf(this, speichern()).then(function () { toast('Preise für ' + firmaVon(S.kunde) + ' gespeichert.'); }).catch(fehler);
+    };
+    $('#soReset').onclick = function () { S.pct = 0; S.eigene = {}; S.geaendert = !!S.kunde; $('#soPct').value = ''; zeichne(); info(); };
+    zeichne(); info();
+    $('#soPdf').onclick = function () {
+      var p = { art: 'sortiment', kategorie: $('#soK').value, nurVerfuegbar: $('#soV').checked, preise: $('#soP').checked };
+      if (S.kunde || S.pct || Object.keys(S.eigene).length) {
+        p.preisMap = {}; C.artikel.forEach(function (a) { var x = preisVon(a); if (x !== '') p.preisMap[a.ean] = x; });
+        if (S.kunde) p.kundeName = firmaVon(S.kunde);
+      }
+      var vorher = S.kunde && S.geaendert ? speichern() : Promise.resolve();
+      mitKnopf(this, vorher.then(function () { return api('b_pdf', p); })).then(pdfZeigen).catch(fehler);
+    };
   }).catch(fehler);
 };
 
