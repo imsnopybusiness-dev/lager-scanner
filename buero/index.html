@@ -254,7 +254,7 @@
 <div id="modalRoot"></div>
 
 <script>
-var APP_VERSION = '2026-11-20b';
+var APP_VERSION = '2026-11-24a';
 /* Selbst-Aktualisierung: holt die Seite ohne Cache und lädt neu, wenn es eine neuere Version gibt */
 (function () {
   function pruefen() {
@@ -2059,9 +2059,19 @@ function kaAuslesen(buf, name) {
     var erste = -1; rows.some(function (r, i) { if (kaEanZelle(r[ec])) { erste = i; return true; } });
     var kopf = []; for (var h = erste - 1; h >= 0 && h >= erste - 6; h--) { if (rows[h].filter(function (x) { return String(x).trim(); }).length >= 2) { kopf = rows[h]; break; } }
     var daten = rows.slice(erste).filter(function (r) { return kaEanZelle(r[ec]); });
+    // Zusatzspalten des Kunden: VK, eigene Artikelnummer, Bestand und Verkäufe je Jahr (Überschrift mit Jahreszahl)
+    var extra = { jahre: [] }, extraC = {};
+    for (var c0 = 0; c0 < best.breite; c0++) {
+      if (c0 === ec) continue;
+      var t0 = String(kopf[c0] || '').replace(/\s+/g, ' ').trim(), jm = t0.match(/\b(20\d\d)\b/);
+      if (jm && /verkauf|absatz|abverkauf|sales|stk|stück|menge/i.test(t0)) { var bis = t0.match(/bis\s*([\d.]+)/i); extra.jahre.push({ i: c0, label: jm[1] + (bis ? ' bis ' + bis[1] : ''), name: t0 }); extraC[c0] = 1; }
+      else if (extra.vk == null && /\bvk\b|verkaufspreis|\buvp\b/i.test(t0)) { extra.vk = c0; extraC[c0] = 1; }
+      else if (extra.art == null && /art\.?\s*-?\s*nr|artikel-?\s*nummer|artikel-?nr/i.test(t0) && !/ean|gtin/i.test(t0)) { extra.art = c0; extraC[c0] = 1; }
+      else if (extra.bestand == null && /bestand|lager/i.test(t0)) { extra.bestand = c0; extraC[c0] = 1; }
+    }
     var textC = -1, zahlC = [];
     for (var c = 0; c < best.breite; c++) {
-      if (c === ec) continue;
+      if (c === ec || extraC[c]) continue;
       var kt = String(kopf[c] || '');
       var num = daten.filter(function (r) { var v = r[c]; return v !== '' && slZahl(v) !== '' && /^[\s€\d.,-]+(eur|€)?\s*$/i.test(String(v)); }).length;
       if (num >= daten.length * 0.3 && num > 0) zahlC.push(c);
@@ -2073,7 +2083,18 @@ function kaAuslesen(buf, name) {
     var vorschlag = -1;
     spalten.forEach(function (s, j) { if (/\bek\b|einkauf|preis|price|prijs|netto|€/i.test(s.name)) vorschlag = j; });
     if (vorschlag < 0) vorschlag = spalten.length - 1;
-    return { zeilen: daten.map(function (r) { return { ean: kaEanZelle(r[ec]), text: textC >= 0 ? String(r[textC] || '').replace(/\s+/g, ' ').trim() : '', werte: zahlC.map(function (c) { return slZahl(r[c]); }) }; }), spalten: spalten, vorschlag: vorschlag };
+    var zusatz = function (r) {
+      var o = {};
+      if (extra.vk != null) o.kundenVk = slZahl(r[extra.vk]);
+      if (extra.art != null) o.kundenArt = String(r[extra.art] == null ? '' : r[extra.art]).trim();
+      if (extra.bestand != null) o.kundenBestand = slZahl(r[extra.bestand]);
+      if (extra.jahre.length) o.verkauf = extra.jahre.filter(function (j) { return slZahl(r[j.i]) !== ''; }).map(function (j) { return j.label + ': ' + slZahl(r[j.i]); }).join('; ');
+      return o;
+    };
+    var hk = function (c) { return String(kopf[c] || '').trim(); };
+    var erkannt = [].concat(extra.vk != null ? ['Kunden-VK (' + hk(extra.vk) + ')'] : [], extra.art != null ? ['Kunden-Art.-Nr. (' + hk(extra.art) + ')'] : [], extra.bestand != null ? ['Bestand (' + hk(extra.bestand) + ')'] : [],
+      extra.jahre.length ? ['Verkäufe ' + extra.jahre.map(function (j) { return j.label; }).join(', ')] : []);
+    return { zeilen: daten.map(function (r) { return { ean: kaEanZelle(r[ec]), text: textC >= 0 ? String(r[textC] || '').replace(/\s+/g, ' ').trim() : '', werte: zahlC.map(function (c) { return slZahl(r[c]); }), zusatz: zusatz(r) }; }), spalten: spalten, vorschlag: vorschlag, erkannt: erkannt };
   });
 }
 // Vorschau: welche Spalte ist der Kunden-EK?
@@ -2084,6 +2105,7 @@ function kaVorschau(res) {
     var sel = res.vorschlag;
     var m = modal('<header><h3>' + z.length + ' Artikel in der Kundenliste</h3></header><div class="inhalt">' +
       (res.spalten.length ? '<div class="feld"><label>In welcher Spalte steht der Einkaufspreis des Kunden?</label><select id="kaSp">' + res.spalten.map(function (s, j) { return '<option value="' + j + '"' + (j === sel ? ' selected' : '') + '>' + esc(s.name) + '</option>'; }).join('') + '</select></div>' : '') +
+      (res.erkannt && res.erkannt.length ? '<div class="hinweis-box" style="font-size:13px">✓ Zusätzlich übernommen: ' + esc(res.erkannt.join(' · ')) + '</div>' : '') +
       '<div class="grau" id="kaInfo" style="font-size:13px;margin-bottom:8px"></div><div class="tab-wrap" style="max-height:48vh;overflow:auto"><table><thead><tr><th>EAN</th><th>Artikel</th><th class="z">Kunden-EK</th></tr></thead><tbody id="kaVb"></tbody></table></div></div>' +
       '<footer><button class="btn sek" data-zu>Abbrechen</button><button class="btn" id="kaOk">Abgleich starten</button></footer>', { breit: true, zu: function () { fertig(null); } });
     var male = function () {
@@ -2094,7 +2116,7 @@ function kaVorschau(res) {
     };
     if ($('#kaSp', m.el)) $('#kaSp', m.el).onchange = function () { sel = Number(this.value); male(); };
     male();
-    $('#kaOk', m.el).onclick = function () { fertig(z.map(function (x, i) { return { pos: i + 1, ean: x.ean, text: x.text, kundenEk: sel >= 0 && x.werte[sel] != null ? x.werte[sel] : '' }; })); m.zu(); };
+    $('#kaOk', m.el).onclick = function () { fertig(z.map(function (x, i) { return Object.assign({ pos: i + 1, ean: x.ean, text: x.text, kundenEk: sel >= 0 && x.werte[sel] != null ? x.werte[sel] : '' }, x.zusatz || {}); })); m.zu(); };
   });
 }
 function kaZeilenSpeichern(nr, zeilen, btn) {
@@ -2167,13 +2189,26 @@ function kaSeite(nr) {
       });
     };
     rechne();
+    // Verkaufszahlen des Kunden je Jahr („2024: 0; 2025: 25; 2026 bis 24.11.: 0“)
+    var jahre = [];
+    z.forEach(function (k) {
+      k.vj = {}; k.vSum = null;
+      String(k.verkauf || '').split(';').forEach(function (s) {
+        var p = s.lastIndexOf(':'); if (p < 0) return;
+        var l = s.slice(0, p).trim(), n = ekZahl(s.slice(p + 1)); if (!l || n == null) return;
+        k.vj[l] = n; k.vSum = (k.vSum || 0) + n; if (jahre.indexOf(l) < 0) jahre.push(l);
+      });
+      k.gelistet = (k.kundenArt && !/nicht/i.test(k.kundenArt)) || k.vSum != null;
+    });
+    jahre.sort();
+    var mitV = jahre.length > 0, letztes = jahre[jahre.length - 1];
     $('#main').innerHTML = '<div style="margin-bottom:6px"><a href="#einkauf/abgleich" class="grau">← Kunden-Abgleich</a></div>' +
       kopf('⚖️ ' + esc(a.kunde) + (a.titel ? ' · ' + esc(a.titel) : ''), datum(a.datum) + ' · ' + statusBadge(a.status) + (a.notiz ? ' · ' + esc(a.notiz) : ''),
         (a.pdf ? '<a class="btn sek" href="' + esc(a.pdf) + '" target="_blank" rel="noopener">📄 Kundenliste</a>' : '') + '<button class="btn sek" id="kaBearb">✏️ Bearbeiten / neu einlesen</button>') +
       '<div class="mini-stat" id="kaKpi" style="grid-template-columns:repeat(4,1fr)"></div>' +
       '<div class="karte"><div class="filter" style="align-items:center"><input type="search" id="kaQ" placeholder="Suchen (Name, EAN, Lieferant) …" value="' + esc(kaA.q) + '">' +
       '<label style="display:flex;align-items:center;gap:6px;white-space:nowrap;font-size:14px">Wir bieten <input id="kaAb" inputmode="decimal" value="' + esc(komma(abschlag)) + '" style="width:58px;text-align:right"> % unter Kunden-EK</label>' +
-      '<select id="kaSort">' + [['liste', 'Reihenfolge der Liste'], ['marge', 'Marge absteigend'], ['ertrag', 'Rohertrag-Potenzial absteigend'], ['spiel', 'Preisabstand € absteigend']].map(function (o) { return '<option value="' + o[0] + '"' + (kaA.sort === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select>' +
+      '<select id="kaSort">' + [['liste', 'Reihenfolge der Liste'], ['marge', 'Marge absteigend'], ['ertrag', 'Rohertrag-Potenzial absteigend'], ['spiel', 'Preisabstand € absteigend']].concat(mitV ? [['vsum', 'Verkäufe beim Kunden gesamt'], ['vletzt', 'Verkäufe ' + letztes]] : []).map(function (o) { return '<option value="' + o[0] + '"' + (kaA.sort === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select>' +
       '<div class="chips" id="kaF"></div></div>' +
       '<div class="grau" style="font-size:12.5px;margin:-4px 0 10px">Unser EK = günstigste Quelle mit derselben EAN (Lieferanten-Angebote und Fundstücke; bei Fundstücken zählt der Ziel-EK). VK-Vorschlag = Kunden-EK − Abschlag. Ampel: <span class="zahl-gut">ab 25 %</span> · <span class="zahl-knapp">10–25 %</span> · <span class="zahl-leer">unter 10 %</span> Marge.</div>' +
       '<div id="kaInhalt"></div></div>';
@@ -2185,32 +2220,36 @@ function kaSeite(nr) {
       $('#kaKpi').innerHTML = '<div><b>' + zahl(z.length) + '</b><small>Artikel in der Kundenliste</small></div><div><b>' + zahl(treffer.length) + '</b><small>bei uns im Angebot (EAN-Treffer)</small></div>' +
         '<div><b class="zahl-gut">' + zahl(gut.length) + '</b><small>lohnen sich (≥ 25 % Marge)' + (knapp.length ? ' · ' + knapp.length + ' knapp' : '') + '</small></div><div><b>' + eur0(ertrag) + '</b><small>Rohertrag, wenn wir den Lieferbestand komplett verkaufen</small></div>';
       var fl = [['alle', 'Alle', z.length], ['treffer', 'Mit Treffer', treffer.length], ['gut', 'Lohnend', gut.length], ['knapp', 'Knapp', knapp.length], ['ohne', 'Ohne Treffer', z.length - treffer.length]];
+      if (mitV || z.some(function (k) { return k.kundenArt; })) fl.push(['gelistet', 'Beim Kunden gelistet', z.filter(function (k) { return k.gelistet; }).length], ['verkauft', 'Mit Verkäufen', z.filter(function (k) { return k.vSum > 0; }).length]);
       $('#kaF').innerHTML = fl.map(function (f) { return '<button class="chip' + (kaA.filter === f[0] ? ' an' : '') + '" data-f="' + f[0] + '">' + f[1] + ' ' + f[2] + '</button>'; }).join('');
       $$('#kaF .chip').forEach(function (b) { b.onclick = function () { kaA.filter = b.dataset.f; male(); }; });
       var q = kaA.q.toLowerCase();
       var l = z.filter(function (k) {
         if (q && (k.text + ' ' + k.ean + ' ' + k.quellen.map(function (s) { return s.lieferant + ' ' + s.text; }).join(' ')).toLowerCase().indexOf(q) < 0) return false;
-        return kaA.filter === 'alle' || (kaA.filter === 'treffer' && k.best) || (kaA.filter === 'ohne' && !k.best) || kaA.filter === k.ampel;
+        return kaA.filter === 'alle' || (kaA.filter === 'treffer' && k.best) || (kaA.filter === 'ohne' && !k.best) || (kaA.filter === 'gelistet' && k.gelistet) || (kaA.filter === 'verkauft' && k.vSum > 0) || kaA.filter === k.ampel;
       });
       var nz = function (v) { return v == null ? -1e9 : v; };
-      var srt = { marge: function (x, y) { return nz(y.marge) - nz(x.marge); }, ertrag: function (x, y) { return y.ertrag - x.ertrag; }, spiel: function (x, y) { return nz(y.spiel) - nz(x.spiel); } }[kaA.sort];
+      var srt = { marge: function (x, y) { return nz(y.marge) - nz(x.marge); }, ertrag: function (x, y) { return y.ertrag - x.ertrag; }, spiel: function (x, y) { return nz(y.spiel) - nz(x.spiel); }, vsum: function (x, y) { return nz(y.vSum) - nz(x.vSum); }, vletzt: function (x, y) { return nz(y.vj[letztes]) - nz(x.vj[letztes]); } }[kaA.sort];
       if (srt) l = l.slice().sort(srt);
       var tag = function (k, t) { return k.ampel ? '<span class="zahl-' + k.ampel + '">' + t + '</span>' : t; };
       $('#kaInhalt').innerHTML = !l.length ? '<div class="leerstand">Keine Artikel für diese Auswahl.</div>' :
-        '<div class="tab-wrap"><table><thead><tr><th></th><th>Artikel (Kundenliste)</th><th class="z">Kunden-EK</th><th>Unser EK · Quelle</th><th class="z">Abstand</th><th class="z">VK-Vorschlag</th><th class="z">Marge</th><th class="z">Lieferbestand</th><th class="z">Rohertrag pot.</th><th></th></tr></thead><tbody>' +
+        '<div class="tab-wrap"><table><thead><tr><th></th><th>Artikel (Kundenliste)</th><th class="z">Kunden-EK</th><th>Unser EK · Quelle</th><th class="z">Abstand</th><th class="z">VK-Vorschlag</th><th class="z">Marge</th><th class="z">Lieferbestand</th><th class="z">Rohertrag pot.</th>' +
+          (mitV ? jahre.map(function (j) { return '<th class="z" title="Verkäufe beim Kunden">Verk. ' + esc(j) + '</th>'; }).join('') + '<th class="z" title="Aktueller Bestand beim Kunden">Bestand Kd.</th>' : '') + '<th></th></tr></thead><tbody>' +
         l.map(function (k) {
           var b = k.best, bild = b && b.bild ? b.bild : (k.quellen.filter(function (s) { return s.bild; })[0] || {}).bild;
           var quelle = !b ? '<span class="grau">kein Angebot mit dieser EAN</span>' :
             '<b>' + (k.ek == null ? '–' : eurP(k.ek)) + '</b>' + (b.istZiel ? ' <small class="grau">(Ziel-EK)</small>' : '') + '<br><small>' + esc(b.lieferant || '–') + ' · <a href="' + (b.art === 'angebot' ? '#einkauf/angebot/' + esc(b.nr) : '#einkauf/funde') + '">' + esc(b.nr) + (b.art === 'angebot' && b.pos ? ' Pos. ' + esc(b.pos) : '') + '</a></small>' +
             (k.quellen.length > 1 ? '<br><small class="grau" title="' + esc(k.quellen.slice(1).map(function (s) { return (s.lieferant || s.nr) + ': ' + (s.ek === '' ? '–' : eurP(s.ek)); }).join(' · ')) + '">+ ' + (k.quellen.length - 1) + ' weitere: ' + k.quellen.slice(1, 3).map(function (s) { return esc(s.lieferant || s.nr) + ' ' + (s.ek === '' ? '–' : eurP(s.ek)); }).join(', ') + '</small>' : '');
           return '<tr><td>' + (bild ? '<img src="' + esc(bild) + '" class="sl-mini" loading="lazy">' : '') + '</td>' +
-            '<td style="min-width:200px"><b>' + esc(k.text || (b ? b.text : '')) + '</b><br><small class="grau">EAN ' + esc(k.ean) + '</small></td>' +
-            '<td class="z">' + (k.kundenEk === '' ? '–' : eurP(k.kundenEk)) + '</td><td>' + quelle + '</td>' +
+            '<td style="min-width:200px"><b>' + esc(k.text || (b ? b.text : '')) + '</b><br><small class="grau">EAN ' + esc(k.ean) + (k.kundenArt ? ' · ' + (/nicht/i.test(k.kundenArt) ? '<span style="color:var(--o)">beim Kunden ' + esc(k.kundenArt) + '</span>' : 'Kd.-Nr. ' + esc(k.kundenArt)) : '') + '</small></td>' +
+            '<td class="z">' + (k.kundenEk === '' ? '–' : eurP(k.kundenEk)) + (k.kundenVk !== '' && k.kundenVk != null ? '<br><small class="grau" title="Verkaufspreis beim Kunden">VK ' + eurP(k.kundenVk) + '</small>' : '') + '</td><td>' + quelle + '</td>' +
             '<td class="z">' + (k.spiel == null ? '–' : eurP(k.spiel) + '<br><small class="grau">' + proz(k.spielP) + '</small>') + '</td>' +
             '<td class="z"><b>' + (k.vk == null ? '–' : eurP(k.vk)) + '</b></td>' +
             '<td class="z">' + (k.marge == null ? '–' : tag(k, proz(k.marge)) + '<br><small class="grau">' + eurP(k.stk) + '/Stk</small>') + '</td>' +
             '<td class="z">' + (b && b.bestand !== '' && b.bestand != null ? zahl(b.bestand) : '–') + '</td>' +
             '<td class="z">' + (k.ertrag ? eur0(k.ertrag) : '–') + '</td>' +
+            (mitV ? jahre.map(function (j) { var n = k.vj[j]; return '<td class="z">' + (n == null ? '<span class="grau">–</span>' : (n > 0 ? '<b>' + zahl(n) + '</b>' : '0')) + '</td>'; }).join('') +
+              '<td class="z">' + (k.kundenBestand === '' || k.kundenBestand == null ? '<span class="grau">–</span>' : zahl(k.kundenBestand)) + '</td>' : '') +
             '<td style="white-space:nowrap">' + (b && b.art === 'angebot' ? '<button class="sl-stern' + (b.merk ? ' an' : '') + '" data-merk="' + k.pos + '" title="Im Lieferanten-Angebot merken">' + (b.merk ? '★' : '☆') + '</button>' : '') +
               (b ? '<button class="btn klein" data-fund="' + k.pos + '" title="Als Fundstück übernehmen (unser EK + VK-Vorschlag)">→ Fund</button>' : '') + '</td></tr>';
         }).join('') + '</tbody></table></div>';
