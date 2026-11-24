@@ -211,6 +211,15 @@
   td .sl-stern { position:static; background:none; }
   .sl-stern.an { color:#D97706; }
   .sl-mini { height:40px; width:70px; object-fit:contain; cursor:zoom-in; }
+  .ek-rabatt { display:inline-block; background:var(--g2); color:var(--g); font-weight:700; font-size:12px; border-radius:6px; padding:1px 6px; white-space:nowrap; }
+  .ek-rabatt.gross { font-size:15px; padding:2px 8px; }
+  a.ek-name { color:inherit; text-decoration:none; } a.ek-name:hover b { text-decoration:underline; }
+  .ek-detail { display:grid; grid-template-columns:minmax(160px,280px) 1fr; gap:18px; align-items:start; }
+  .ek-detail-bild { display:flex; flex-direction:column; gap:6px; align-items:center; text-align:center; }
+  .ek-detail-bild img { width:100%; max-height:320px; object-fit:contain; border:1px solid var(--linie, #E5E7EB); border-radius:10px; background:#fff; }
+  .ek-detail-preis b { font-size:24px; } .ek-detail-preis { margin-bottom:10px; }
+  .ek-detail-tab { width:100%; border-collapse:collapse; font-size:13.5px; } .ek-detail-tab td { padding:5px 6px; border-bottom:1px solid #EEF0EE; vertical-align:top; }
+  @media (max-width:700px) { .ek-detail { grid-template-columns:1fr; } }
   /* Toast & Laden */
   #toasts { position:fixed; right:20px; bottom:20px; display:flex; flex-direction:column; gap:8px; z-index:100; }
   .toast { background:#111827; color:#fff; padding:11px 16px; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.2); max-width:420px; font-size:13.5px; }
@@ -254,7 +263,7 @@
 <div id="modalRoot"></div>
 
 <script>
-var APP_VERSION = '2026-11-24a';
+var APP_VERSION = '2026-11-24b';
 /* Selbst-Aktualisierung: holt die Seite ohne Cache und lädt neu, wenn es eine neuere Version gibt */
 (function () {
   function pruefen() {
@@ -1668,6 +1677,8 @@ var SL_SPALTEN = [
   ['bestand', /(stock|bestand|voorraad|available|verfügbar|menge|qty$|quantity$)/i],
   ['karton', /(qty ?\/ ?ctn|per ?ctn|karton|carton|doos|ve\b|pcs ?\/ ?ctn|inner)/i],
   ['palette', /(pallet|palette|pal\.?)/i],
+  ['uvp', /\b(uvp|rrp|msrp|empf\.?\s*vk|adviesprijs|consumentenprijs|verkaufspreis empf)/i],
+  ['normalEk', /(erstverkaufspreis|listenpreis|normal(er)?\s*-?\s*(ek|preis)|alter\s*preis|regul(ä|ae)r|original\s*-?\s*preis|old\s*price|was\s*price|statt\s*-?\s*preis)/i],
   ['preis', /(price|preis|prijs|ek\b|€)/i],
   ['bild', /(image|bild|foto|afbeelding|picture|photo)/i]
 ];
@@ -1681,6 +1692,17 @@ function slZuordnen(kopf) {
     }
   });
   return z;
+}
+// Alle übrigen Spalten der Liste als „Weitere Infos“ mitnehmen (Material, Maße, Saison, Merkmale …)
+function slDetails(kopf, r, z) {
+  var belegt = {}; Object.keys(z).forEach(function (k) { belegt[z[k]] = 1; });
+  var d = {};
+  (kopf || []).forEach(function (h, i) {
+    h = String(h || '').replace(/\s+/g, ' ').trim(); if (!h || belegt[i] || /bild|image|foto|link|url|hyperlink/i.test(h)) return;
+    var v = r[i]; v = v == null ? '' : String(v).trim(); if (!v || /^=|^https?:/i.test(v)) return;
+    d[h] = v;
+  });
+  return Object.keys(d).length ? d : null;
 }
 function slZahl(t) {
   t = String(t == null ? '' : t).replace(/€|eur/gi, '').trim();
@@ -1709,7 +1731,7 @@ function slZeileFertig(r) {
   var v = slVerpackung(r.karton, r.palette);
   var ean = String(r.ean || '').replace(/\D/g, '');
   return { ean: ean, artnr: String(r.artnr || '').trim(), text: String(r.text || '').replace(/\s+/g, ' ').trim(), bestand: slZahl(r.bestand), preis: slZahl(r.preis),
-    karton: v.karton, kartonsPal: v.kartonsPal, proPal: v.proPal, bild: r.bild || '',
+    karton: v.karton, kartonsPal: v.kartonsPal, proPal: v.proPal, bild: r.bild || '', normalEk: slZahl(r.normalEk), uvp: slZahl(r.uvp), details: r._details ? JSON.stringify(r._details) : '',
     verpackung: [r.karton, r.palette, String(r.moq || '').trim() ? 'MOQ ' + r.moq : '', r.verfueg].filter(function (x) { return String(x || '').trim(); }).join(' · ').replace(/\s+/g, ' ').trim() };
 }
 var pdfjsLadung = null;
@@ -1807,7 +1829,7 @@ function slAusTabelle(buf, name) {
     var kopfI = -1, z = null;
     for (var i = 0; i < Math.min(rows.length, 30); i++) { var zz = slZuordnen(rows[i]); if (Object.keys(zz).length >= 3) { kopfI = i; z = zz; break; } }
     if (kopfI < 0) throw new Error('In der Tabelle wurde keine Kopfzeile (EAN, Beschreibung, Preis …) gefunden.');
-    var out = rows.slice(kopfI + 1).map(function (r) { var o = {}; Object.keys(z).forEach(function (k) { o[k] = r[z[k]]; }); return o; })
+    var out = rows.slice(kopfI + 1).map(function (r) { var o = {}; Object.keys(z).forEach(function (k) { o[k] = r[z[k]]; }); o._details = slDetails(rows[kopfI], r, z); return o; })
       .filter(function (o) { return String(o.ean || '').trim() || String(o.text || '').trim(); });
     return { zeilen: out.map(slZeileFertig), kopf: rows[kopfI], spalten: Object.keys(z) };
   });
@@ -1861,7 +1883,7 @@ async function slAusXlsx(buf, fortschritt) {
         if (dRels[emb]) (bilder[row] = bilder[row] || {})[col] = dRels[emb];
       });
     }
-    var daten = nummern.filter(function (n) { return n > kopfR; }).map(function (n) { var r = zeilen[n], o = { _r: n }; Object.keys(z).forEach(function (k) { o[k] = r[z[k]] == null ? '' : r[z[k]]; }); return o; })
+    var daten = nummern.filter(function (n) { return n > kopfR; }).map(function (n) { var r = zeilen[n], o = { _r: n }; Object.keys(z).forEach(function (k) { o[k] = r[z[k]] == null ? '' : r[z[k]]; }); o._details = slDetails(zeilen[kopfR], r, z); return o; })
       .filter(function (o) { return String(o.ean || '').replace(/\D/g, '').length >= 8 || (String(o.text || '').trim() && String(o.preis || '').trim()); });
     var cache = {};
     for (var j = 0; j < daten.length; j++) {
@@ -1908,7 +1930,7 @@ function slStarten(nr, buf, name, mime) {
 }
 function slVorschau(nr, res) {
   var z = res.zeilen, ohne = function (k) { return z.filter(function (x) { return x[k] === '' || x[k] == null; }).length; };
-  var namen = { ean: 'EAN', artnr: 'Art.-Nr.', text: 'Beschreibung', bestand: 'Bestand', karton: 'Stk/Karton', palette: 'Palette', preis: 'Preis', bild: 'Bild', moq: 'MOQ', verfueg: 'Verfügbarkeit' };
+  var namen = { ean: 'EAN', artnr: 'Art.-Nr.', text: 'Beschreibung', bestand: 'Bestand', karton: 'Stk/Karton', palette: 'Palette', preis: 'Preis', bild: 'Bild', moq: 'MOQ', verfueg: 'Verfügbarkeit', normalEk: 'Normaler EK', uvp: 'UVP' };
   var warn = [['preis', 'ohne Preis'], ['ean', 'ohne EAN'], ['bestand', 'ohne Bestand'], ['bild', 'ohne Bild']].map(function (w) { var n = ohne(w[0]); return n ? n + ' ' + w[1] : ''; }).filter(String);
   var m = modal('<header><h3>' + z.length + ' Artikel erkannt</h3></header><div class="inhalt">' +
     '<p style="margin-top:0">Erkannte Spalten: <b>' + res.spalten.map(function (k) { return namen[k] || k; }).join(' · ') + '</b>' + (warn.length ? '<br><span class="grau">' + warn.join(' · ') + '</span>' : '') + '</p>' +
@@ -1952,16 +1974,22 @@ function ekAngebotSeite(nr) {
     var lief = ekLieferantName(a.lieferant);
     var summe = function (l, f) { return l.reduce(function (s, p) { return s + (Number(f(p)) || 0); }, 0); };
     var marken = {}; pos.forEach(function (p) { var k = ekMarke(p.text); marken[k] = (marken[k] || 0) + 1; });
+    // Rabatt gegenüber dem normalen EK des Lieferanten
+    pos.forEach(function (p) { var n = Number(p.normalEk), pr = Number(p.preis); p.rabatt = p.normalEk !== '' && n > 0 && p.preis !== '' && pr >= 0 ? 1 - pr / n : null; });
+    var mitRabatt = pos.filter(function (p) { return p.rabatt != null; });
+    var rabattSchnitt = mitRabatt.length ? 1 - summe(mitRabatt, function (p) { return (Number(p.bestand) || 0) * p.preis; }) / (summe(mitRabatt, function (p) { return (Number(p.bestand) || 0) * p.normalEk; }) || 1) : null;
+    var rabattTag = function (p, gross) { return p.rabatt == null ? '' : '<span class="ek-rabatt' + (gross ? ' gross' : '') + '" title="gegenüber normalem EK ' + eurP(p.normalEk) + '">−' + Math.round(p.rabatt * 100) + ' %</span>'; };
     var markenListe = Object.keys(marken).sort(function (x, y) { return marken[y] - marken[x] || x.localeCompare(y); });
     $('#main').innerHTML = '<div style="margin-bottom:6px"><a href="#einkauf/angebote" class="grau">← Lieferanten-Angebote</a></div>' +
       kopf(esc(lief) + (a.titel ? ' · ' + esc(a.titel) : ''), 'Eingang ' + datum(a.datum) + (a.gueltig ? ' · gültig bis ' + datum(a.gueltig) : '') + ' · ' + statusBadge(a.status) + (a.notiz ? ' · ' + esc(a.notiz) : ''),
         (a.pdf ? '<a class="btn sek" href="' + esc(a.pdf) + '" target="_blank" rel="noopener">📄 Original</a>' : '') +
         (a.pdf ? '<button class="btn sek" id="slNeu">↻ Aus Datei auslesen</button>' : '') + '<button class="btn sek" id="slBearb">✏️ Bearbeiten</button>') +
-      (pos.length ? '<div class="mini-stat" style="grid-template-columns:repeat(4,1fr)"><div><b>' + zahl(pos.length) + '</b><small>Artikel</small></div><div><b>' + zahl(summe(pos, function (p) { return p.bestand; })) + '</b><small>Stück auf Lager</small></div>' +
+      (pos.length ? '<div class="mini-stat" style="grid-template-columns:repeat(' + (rabattSchnitt != null ? 5 : 4) + ',1fr)"><div><b>' + zahl(pos.length) + '</b><small>Artikel</small></div>' +
+        (rabattSchnitt != null ? '<div><b class="zahl-gut">−' + Math.round(rabattSchnitt * 100) + ' %</b><small>unter normalem EK (Ø, nach Warenwert)</small></div>' : '') + '<div><b>' + zahl(summe(pos, function (p) { return p.bestand; })) + '</b><small>Stück auf Lager</small></div>' +
         '<div><b>' + eur0(summe(pos, function (p) { return (Number(p.bestand) || 0) * (Number(p.preis) || 0); })) + '</b><small>Warenwert (Bestand × Preis)</small></div><div><b id="slMerkZahl">' + pos.filter(function (p) { return p.merk; }).length + '</b><small>★ gemerkt</small></div></div>' +
         '<div class="karte"><div class="filter"><input type="search" id="slQ" placeholder="Suchen (Name, EAN) …" value="' + esc(ekA.q) + '">' +
         '<select id="slMarke"><option value="">Alle Marken (' + markenListe.length + ')</option>' + markenListe.map(function (k) { return '<option value="' + esc(k) + '"' + (ekA.marke === k ? ' selected' : '') + '>' + esc(k) + ' (' + marken[k] + ')</option>'; }).join('') + '</select>' +
-        '<select id="slSort">' + [['liste', 'Reihenfolge der Liste'], ['preis', 'Preis aufsteigend'], ['preisab', 'Preis absteigend'], ['bestand', 'Bestand absteigend'], ['wert', 'Warenwert absteigend'], ['name', 'Name A–Z']].map(function (o) { return '<option value="' + o[0] + '"' + (ekA.sort === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select>' +
+        '<select id="slSort">' + [['liste', 'Reihenfolge der Liste'], ['preis', 'Preis aufsteigend'], ['preisab', 'Preis absteigend'], ['bestand', 'Bestand absteigend'], ['wert', 'Warenwert absteigend'], ['name', 'Name A–Z']].concat(mitRabatt.length ? [['rabatt', 'Rabatt (höchster zuerst)']] : []).map(function (o) { return '<option value="' + o[0] + '"' + (ekA.sort === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select>' +
         '<div class="chips"><button class="chip' + (ekA.nurMerk ? '' : ' an') + '" data-m="0">Alle</button><button class="chip' + (ekA.nurMerk ? ' an' : '') + '" data-m="1">★ Gemerkt</button>' +
         '<button class="chip' + (ekA.ansicht === 'karten' ? ' an' : '') + '" data-a="karten" style="margin-left:8px">▦ Karten</button><button class="chip' + (ekA.ansicht === 'liste' ? ' an' : '') + '" data-a="liste">☰ Liste</button></div></div>' +
         '<div class="grau" id="slAnz" style="font-size:13px;margin:-4px 0 10px"></div><div id="slInhalt"></div></div>'
@@ -1980,20 +2008,21 @@ function ekAngebotSeite(nr) {
       var l = pos.filter(function (p) { return (!q || (p.text + ' ' + p.ean + ' ' + p.artnr).toLowerCase().indexOf(q) >= 0) && (!ekA.marke || ekMarke(p.text) === ekA.marke) && (!ekA.nurMerk || p.merk); });
       var wert = function (p) { return (Number(p.bestand) || 0) * (Number(p.preis) || 0); };
       var srt = { preis: function (x, y) { return (Number(x.preis) || 1e9) - (Number(y.preis) || 1e9); }, preisab: function (x, y) { return (Number(y.preis) || 0) - (Number(x.preis) || 0); },
-        bestand: function (x, y) { return (Number(y.bestand) || 0) - (Number(x.bestand) || 0); }, wert: function (x, y) { return wert(y) - wert(x); }, name: function (x, y) { return String(x.text).localeCompare(String(y.text)); } }[ekA.sort];
+        bestand: function (x, y) { return (Number(y.bestand) || 0) - (Number(x.bestand) || 0); }, wert: function (x, y) { return wert(y) - wert(x); }, name: function (x, y) { return String(x.text).localeCompare(String(y.text)); }, rabatt: function (x, y) { return (y.rabatt == null ? -9 : y.rabatt) - (x.rabatt == null ? -9 : x.rabatt); } }[ekA.sort];
       if (srt) l = l.slice().sort(srt);
       $('#slAnz').textContent = l.length === pos.length ? pos.length + ' Artikel' : l.length + ' von ' + pos.length + ' Artikeln · Warenwert ' + eur0(l.reduce(function (s, p) { return s + wert(p); }, 0));
       var pack = function (p) { return [p.karton ? zahl(p.karton) + ' Stk/Karton' : '', p.kartonsPal ? zahl(p.kartonsPal) + ' Kart./Pal.' : '', p.proPal ? zahl(p.proPal) + ' Stk/Pal.' : ''].filter(String).join(' · ') || esc(p.verpackung || ''); };
       var stern = function (p) { return '<button class="sl-stern' + (p.merk ? ' an' : '') + '" data-merk="' + p.pos + '" title="Merken">' + (p.merk ? '★' : '☆') + '</button>'; };
       var aktionen = function (p) { return '<button class="btn klein" data-fund="' + p.pos + '">→ Fundstück</button><a class="btn sek klein" href="' + ekBildSuche(p) + '" target="_blank" rel="noopener" title="Größeres Bild bei Google suchen">🔍 Bild</a>'; };
       $('#slInhalt').innerHTML = !l.length ? '<div class="leerstand">Keine Artikel für diese Auswahl.</div>' : ekA.ansicht === 'liste'
-        ? '<div class="tab-wrap"><table><thead><tr><th></th><th></th><th>Artikel</th><th>EAN</th><th class="z">Bestand</th><th class="z">Preis/Stk</th><th>Verpackung</th><th class="z">Warenwert</th><th></th></tr></thead><tbody>' + l.map(function (p) {
-            return '<tr><td>' + stern(p) + '</td><td>' + (p.bild ? '<img src="' + p.bild + '" class="sl-mini" data-zoom="' + p.pos + '">' : '') + '</td><td><b>' + esc(p.text) + '</b></td><td><small>' + esc(p.ean) + '</small></td><td class="z">' + zahl(p.bestand) + '</td><td class="z"><b>' + (p.preis === '' ? '–' : eurP(p.preis)) + '</b></td><td><small>' + pack(p) + '</small></td><td class="z">' + (wert(p) ? eur0(wert(p)) : '–') + '</td><td style="white-space:nowrap">' + aktionen(p) + '</td></tr>';
+        ? '<div class="tab-wrap"><table><thead><tr><th></th><th></th><th>Artikel</th><th>EAN</th><th class="z">Bestand</th><th class="z">Preis/Stk</th>' + (mitRabatt.length ? '<th class="z">Normaler EK</th><th class="z">Rabatt</th>' : '') + '<th>Verpackung</th><th class="z">Warenwert</th><th></th></tr></thead><tbody>' + l.map(function (p) {
+            return '<tr><td>' + stern(p) + '</td><td>' + (p.bild ? '<img src="' + p.bild + '" class="sl-mini" data-zoom="' + p.pos + '">' : '') + '</td><td><a href="javascript:void 0" class="ek-name" data-zoom="' + p.pos + '"><b>' + esc(p.text) + '</b></a></td><td><small>' + esc(p.ean) + '</small></td><td class="z">' + zahl(p.bestand) + '</td><td class="z"><b>' + (p.preis === '' ? '–' : eurP(p.preis)) + '</b></td>' +
+              (mitRabatt.length ? '<td class="z grau">' + (p.normalEk === '' ? '–' : eurP(p.normalEk)) + '</td><td class="z">' + (rabattTag(p) || '–') + '</td>' : '') + '<td><small>' + pack(p) + '</small></td><td class="z">' + (wert(p) ? eur0(wert(p)) : '–') + '</td><td style="white-space:nowrap">' + aktionen(p) + '</td></tr>';
           }).join('') + '</tbody></table></div>'
         : '<div class="sl-grid">' + l.map(function (p) {
             return '<div class="sl-karte">' + stern(p) + '<div class="sl-bild" data-zoom="' + p.pos + '">' + (p.bild ? '<img src="' + p.bild + '" alt="" loading="lazy">' : '<span>Kein Bild</span>') + '</div>' +
-              '<div class="sl-text"><b>' + esc(p.text) + '</b><small>' + esc(ekMarke(p.text)) + (p.ean ? ' · EAN ' + esc(p.ean) : '') + '</small>' +
-              '<div class="sl-preis">' + (p.preis === '' ? '–' : eurP(p.preis)) + '<small> / Stk</small></div>' +
+              '<div class="sl-text"><a href="javascript:void 0" class="ek-name" data-zoom="' + p.pos + '"><b>' + esc(p.text) + '</b></a><small>' + esc(ekMarke(p.text)) + (p.ean ? ' · EAN ' + esc(p.ean) : '') + '</small>' +
+              '<div class="sl-preis">' + (p.preis === '' ? '–' : eurP(p.preis)) + '<small> / Stk</small>' + (p.rabatt != null ? ' <s class="grau" style="font-size:13px;font-weight:400">' + eurP(p.normalEk) + '</s> ' + rabattTag(p) : '') + '</div>' +
               '<div class="sl-zahlen"><span>Bestand <b>' + zahl(p.bestand) + '</b></span><span>Wert <b>' + (wert(p) ? eur0(wert(p)) : '–') + '</b></span></div>' +
               (pack(p) ? '<div class="ek-pack">📦 ' + pack(p) + '</div>' : '') + '<div class="sl-aktionen">' + aktionen(p) + '</div></div></div>';
           }).join('') + '</div>';
@@ -2009,10 +2038,7 @@ function ekAngebotSeite(nr) {
           '✓ Aus dem Angebot übernommen. Jetzt <b>Ziel-EK</b>, VK und Menge eintragen und speichern.');
       }; });
       $$('[data-zoom]', $('#slInhalt')).forEach(function (b) { b.onclick = function () {
-        var p = finde(b.dataset.zoom);
-        modal('<header><h3>' + esc(p.text) + '</h3></header><div class="inhalt" style="text-align:center">' + (p.bild ? '<img src="' + p.bild + '" style="width:100%;max-width:560px;max-height:60vh;object-fit:contain">' : '') +
-          '<p class="grau">Das Bild ist so groß, wie es in der Liste des Lieferanten steckt. Schärfere Fotos: <a href="' + ekBildSuche(p) + '" target="_blank" rel="noopener">🔍 per EAN bei Google suchen</a></p>' +
-          '<p>EAN ' + esc(p.ean || '–') + ' · Bestand ' + zahl(p.bestand) + ' · <b>' + (p.preis === '' ? '–' : eurP(p.preis)) + '</b>/Stk' + (p.verpackung ? '<br><small class="grau">' + esc(p.verpackung) + '</small>' : '') + '</p></div><footer><button class="btn sek" data-zu>Schließen</button></footer>', { breit: true });
+        ekPosDetail(finde(b.dataset.zoom), a, nr, function () { male(); $('#slMerkZahl').textContent = pos.filter(function (x) { return x.merk; }).length; });
       }; });
     };
     $('#slQ').oninput = function () { ekA.q = this.value; male(); };
@@ -2022,6 +2048,45 @@ function ekAngebotSeite(nr) {
     $$('[data-a]').forEach(function (b) { b.onclick = function () { ekA.ansicht = b.dataset.a; $$('[data-a]').forEach(function (c) { c.classList.toggle('an', c === b); }); male(); }; });
     male();
   }).catch(fehler);
+}
+
+// Alle Infos zu einer Angebotsposition (Klick auf Artikel oder Bild)
+function ekPosDetail(p, a, nr, neuMalen) {
+  var det = {}; try { det = p.details ? JSON.parse(p.details) : {}; } catch (e) { det = { Infos: p.details }; }
+  var wert = (Number(p.bestand) || 0) * (Number(p.preis) || 0);
+  var zeile = function (l, v) { return v === '' || v == null ? '' : '<tr><td class="grau" style="width:42%">' + esc(l) + '</td><td>' + v + '</td></tr>'; };
+  var spanne = p.uvp !== '' && Number(p.uvp) > 0 && p.preis !== '' ? 1 - Number(p.preis) / (Number(p.uvp) / 1.19) : null;
+  var infos = Object.keys(det).map(function (k) { var v = String(det[k]); return /\n/.test(v) ? '<tr><td class="grau">' + esc(k) + '</td><td style="white-space:pre-line">' + esc(v) + '</td></tr>' : zeile(k, esc(v)); }).join('');
+  var m = modal('<header><h3>' + esc(p.text) + '</h3></header><div class="inhalt">' +
+    '<div class="ek-detail"><div class="ek-detail-bild">' + (p.bild ? '<img src="' + p.bild + '" alt="">' : '<span class="grau">Kein Bild</span>') +
+      '<a class="grau" style="font-size:12px" href="' + ekBildSuche(p) + '" target="_blank" rel="noopener">🔍 Größeres Bild per EAN suchen</a></div>' +
+    '<div><div class="ek-detail-preis"><b>' + (p.preis === '' ? '–' : eurP(p.preis)) + '</b><small> / Stk netto</small>' +
+      (p.rabatt != null ? '<div style="margin-top:4px"><s class="grau">' + eurP(p.normalEk) + ' normaler EK</s> <span class="ek-rabatt gross">−' + Math.round(p.rabatt * 100) + ' %</span><br><small class="grau">Ersparnis ' + eurP(p.normalEk - p.preis) + ' je Stück</small></div>' : '') + '</div>' +
+      '<table class="ek-detail-tab"><tbody>' +
+        zeile('Lieferant', esc(ekLieferantName(a.lieferant))) + zeile('Angebot', esc(nr) + ' · Pos. ' + esc(p.pos)) +
+        zeile('EAN', esc(p.ean)) + zeile('Art.-Nr. Lieferant', esc(p.artnr)) +
+        zeile('Normaler EK', p.normalEk === '' ? '' : eurP(p.normalEk)) +
+        zeile('UVP', p.uvp === '' ? '' : eurP(p.uvp) + (spanne != null ? ' <small class="grau">(Spanne für den Händler ' + proz(spanne) + ' bei unserem EK)</small>' : '')) +
+        zeile('Bestand', zahl(p.bestand) + ' Stk') + zeile('Warenwert', wert ? eur0(wert) : '') +
+        zeile('Stk/Karton', p.karton ? zahl(p.karton) : '') + zeile('Kartons/Palette', p.kartonsPal ? zahl(p.kartonsPal) : '') + zeile('Stk/Palette', p.proPal ? zahl(p.proPal) : '') +
+        zeile('Verpackung (Liste)', esc(p.verpackung)) + infos +
+      '</tbody></table>' +
+      '<div class="feld" style="margin-top:10px"><label>Eigene Notiz</label><textarea id="pdNotiz" rows="2">' + esc(p.notiz || '') + '</textarea></div></div></div></div>' +
+    '<footer><button class="btn sek" id="pdMerk">' + (p.merk ? '★ Gemerkt' : '☆ Merken') + '</button><button class="btn sek" id="pdFund">→ Fundstück</button><span style="flex:1"></span><button class="btn sek" data-zu>Schließen</button><button class="btn" id="pdOk">Notiz speichern</button></footer>', { breit: true });
+  $('#pdMerk', m.el).onclick = function () {
+    var bt = this; p.merk = !p.merk; bt.textContent = p.merk ? '★ Gemerkt' : '☆ Merken'; if (neuMalen) neuMalen();
+    api('ek_position_merken', { nr: nr, pos: p.pos, daten: { merk: p.merk } }).catch(function (e) { p.merk = !p.merk; bt.textContent = p.merk ? '★ Gemerkt' : '☆ Merken'; if (neuMalen) neuMalen(); fehler(e); });
+  };
+  $('#pdOk', m.el).onclick = function () {
+    var n = $('#pdNotiz', m.el).value;
+    mitKnopf(this, api('ek_position_merken', { nr: nr, pos: p.pos, daten: { notiz: n } })).then(function () { p.notiz = n; toast('Notiz gespeichert.'); m.zu(); }).catch(fehler);
+  };
+  $('#pdFund', m.el).onclick = function () {
+    m.zu();
+    ekFundForm({ artikel: p.text, ean: p.ean, artnr: p.artnr, ek: p.preis, lieferant: a.lieferant, lagerLief: p.bestand, karton: p.karton, kartonsPal: p.kartonsPal, proPal: p.proPal, link: a.pdf, bild: p.bild,
+      infos: 'Aus Lieferanten-Angebot ' + nr + (a.titel ? ' („' + a.titel + '“)' : '') + ', Pos. ' + p.pos + (p.normalEk !== '' ? '\nNormaler EK: ' + eurP(p.normalEk) + (p.rabatt != null ? ' (−' + Math.round(p.rabatt * 100) + ' %)' : '') : '') + (p.uvp !== '' ? '\nUVP: ' + eurP(p.uvp) : '') + (p.verpackung ? '\nVerpackung laut Liste: ' + p.verpackung : '') }, '',
+      '✓ Aus dem Angebot übernommen. Jetzt <b>Ziel-EK</b>, VK und Menge eintragen und speichern.');
+  };
 }
 
 /* ============================ Einkauf: Kunden-EK-Abgleich ============================ */
